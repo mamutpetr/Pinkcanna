@@ -18,26 +18,34 @@ PRODUCTS = {
     "jelly": {"name": "СБД Желе 🍬", "price": 500, "file": "Cbdgele.jpg"}
 }
 
+# Кошики користувачів (у пам'яті)
 user_carts = {}
+
+# --- КЛАВІАТУРИ ---
 
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("📂 Каталог", "🛒 Кошик", "📦 Мої замовлення", "📰 Новини")
+    markup.add("📂 Каталог", "🛒 Кошик")
+    markup.add("📦 Мої замовлення", "📰 Новини")
     return markup
+
+# --- ОБРОБНИКИ ТЕКСТОВИХ КОМАНД (МЕНЮ) ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "👋 Привіт! Я твій бот-магазин. Обирай товари в каталозі:", reply_markup=main_menu())
+    bot.send_message(
+        message.chat.id, 
+        "👋 Вітаємо у нашому магазині!\nВикористовуйте меню нижче для навігації:", 
+        reply_markup=main_menu()
+    )
 
-# --- КАТАЛОГ ---
 @bot.message_handler(func=lambda m: m.text == "📂 Каталог")
 def show_catalog(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for key, item in PRODUCTS.items():
         markup.add(types.InlineKeyboardButton(item["name"], callback_data=f"show_{key}"))
-    bot.send_message(message.chat.id, "✨ Наш асортимент:", reply_markup=markup)
+    bot.send_message(message.chat.id, "✨ Оберіть товар для перегляду:", reply_markup=markup)
 
-# --- КОШИК ---
 @bot.message_handler(func=lambda m: m.text == "🛒 Кошик")
 def show_cart(message):
     chat_id = message.chat.id
@@ -54,85 +62,103 @@ def show_cart(message):
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🚀 Оформити замовлення", callback_data="checkout"))
-        markup.add(types.InlineKeyboardButton("🗑 Очистити", callback_data="clear_cart"))
+        markup.add(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))
         bot.send_message(chat_id, cart_text, reply_markup=markup)
 
-# --- ОБРОБКА КНОПОК ---
+@bot.message_handler(func=lambda m: m.text == "📰 Новини")
+def show_news(message):
+    news_text = (
+        "📰 **Останні новини магазину:**\n\n"
+        "✅ Ми офіційно запустили нашого Telegram-бота!\n"
+        "🚚 Доставка працює у штатному режимі.\n"
+        "✨ Всі товари з каталогу є в наявності."
+    )
+    bot.send_message(message.chat.id, news_text)
+
+@bot.message_handler(func=lambda m: m.text == "📦 Мої замовлення")
+def show_orders(message):
+    bot.send_message(
+        message.chat.id, 
+        "📦 **Ваші замовлення:**\n\n"
+        "Наразі ваша історія замовлень доступна у менеджера. "
+        "Після оформлення замовлення ми зателефонуємо вам для підтвердження!"
+    )
+
+# --- ОБРОБКА ІНЛАЙН-КНОПОК ТА КАТАЛОГУ ---
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     chat_id = call.message.chat.id
     
+    # Показ товару
     if call.data.startswith("show_"):
         key = call.data.split("_", 1)[1]
         item = PRODUCTS[key]
         photo_path = os.path.join(os.path.dirname(__file__), item["file"])
         
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(f"➕ Додати в кошик", callback_data=f"buy_{key}"))
-        markup.add(types.InlineKeyboardButton("🔙 Назад до списку", callback_data="back_to_catalog"))
+        markup.add(types.InlineKeyboardButton(f"➕ Додати в кошик {item['price']} грн", callback_data=f"buy_{key}"))
+        markup.add(types.InlineKeyboardButton("🔙 Назад до каталогу", callback_data="back_to_catalog"))
         
         try:
             with open(photo_path, 'rb') as photo:
-                bot.send_photo(chat_id, photo, caption=f"🌟 **{item['name']}**\n\nЦіна: {item['price']} грн", reply_markup=markup)
+                bot.send_photo(chat_id, photo, caption=f"🌟 **{item['name']}**\n\nНайкраща якість!\nЦіна: {item['price']} грн", reply_markup=markup)
             bot.delete_message(chat_id, call.message.message_id)
         except:
-            bot.send_message(chat_id, f"📦 **{item['name']}**\nЦіна: {item['price']} грн\n(Фото не знайдено, перевірте назву файлу на GitHub)", reply_markup=markup)
+            bot.send_message(chat_id, f"📦 **{item['name']}**\nЦіна: {item['price']} грн\n(Фото не знайдено на сервері)", reply_markup=markup)
 
+    # Купівля
     elif call.data.startswith("buy_"):
         key = call.data.split("_", 1)[1]
         if chat_id not in user_carts: user_carts[chat_id] = []
         user_carts[chat_id].append(key)
         bot.answer_callback_query(call.id, f"✅ {PRODUCTS[key]['name']} додано!")
 
+    # Крок оформлення
     elif call.data == "checkout":
-        # Запит телефону (кнопкою)
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add(types.KeyboardButton("📱 Надіслати номер телефону", request_contact=True))
-        bot.send_message(chat_id, "Для завершення замовлення натисніть кнопку нижче, щоб ми отримали ваш номер:", reply_markup=markup)
+        bot.send_message(chat_id, "Натисніть кнопку нижче, щоб ми отримали ваш контакт для зв'язку:", reply_markup=markup)
+
+    # Повернення та очищення
+    elif call.data == "back_to_catalog":
+        bot.delete_message(chat_id, call.message.message_id)
+        show_catalog(call.message)
 
     elif call.data == "clear_cart":
         user_carts[chat_id] = []
         bot.edit_message_text("🛒 Кошик очищено.", chat_id, call.message.message_id)
 
-    elif call.data == "back_to_catalog":
-        bot.delete_message(chat_id, call.message.message_id)
-        show_catalog(call.message)
+# --- ОБРОБКА КОНТАКТУ ТА ВІДПРАВКА АДМІНУ ---
 
-# --- ПРИЙОМ КОНТАКТУ ТА ВІДПРАВКА ТОБІ ---
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
     chat_id = message.chat.id
     if chat_id in user_carts and user_carts[chat_id]:
         phone = message.contact.phone_number
-        first_name = message.from_user.first_name
-        last_name = message.from_user.last_name if message.from_user.last_name else ""
         username = f"@{message.from_user.username}" if message.from_user.username else "Прихований"
-        
-        items_list = "\n".join([PRODUCTS[k]['name'] for k in user_carts[chat_id]])
-        total_sum = sum([PRODUCTS[k]['price'] for k in user_carts[chat_id]])
+        items = "\n".join([PRODUCTS[k]['name'] for k in user_carts[chat_id]])
+        total = sum([PRODUCTS[k]['price'] for k in user_carts[chat_id]])
 
-        # Формуємо повідомлення ДЛЯ ТЕБЕ (Адміна)
         order_report = (
             f"🔔 **НОВЕ ЗАМОВЛЕННЯ!**\n\n"
-            f"👤 Клієнт: {first_name} {last_name} ({username})\n"
-            f"📞 Телефон: {phone}\n"
-            f"📦 Товари:\n{items_list}\n"
-            f"💰 Сума: {total_sum} грн"
+            f"👤 Клієнт: {message.from_user.first_name} ({username})\n"
+            f"📞 Тел: {phone}\n"
+            f"📦 Товари:\n{items}\n"
+            f"💰 Сума: {total} грн"
         )
         
         try:
-            bot.send_message(ADMIN_ID, order_report) # ПРЯМА ПЕРЕСИЛКА ТОБІ
-            bot.send_message(chat_id, "✅ Дякуємо! Ваше замовлення отримано. Менеджер зв'яжеться з вами найближчим часом.", reply_markup=main_menu())
-            user_carts[chat_id] = [] # Очищення кошика
+            bot.send_message(ADMIN_ID, order_report)
+            bot.send_message(chat_id, "✅ Дякуємо! Ваше замовлення прийнято. Менеджер скоро зв'яжеться з вами.", reply_markup=main_menu())
+            user_carts[chat_id] = []
         except Exception as e:
-            print(f"Помилка відправки адміну: {e}")
-            bot.send_message(chat_id, "❌ Сталася помилка при надсиланні замовлення адміну. Будь ласка, напишіть нам в особисті.")
-    else:
-        bot.send_message(chat_id, "🛒 Ваш кошик був порожній. Оберіть товари спочатку.", reply_markup=main_menu())
+            bot.send_message(chat_id, "⚠️ Помилка оформлення. Зв'яжіться з нами напряму.")
+            print(f"Error: {e}")
 
 # --- ЗАПУСК ---
 if __name__ == "__main__":
     bot.remove_webhook()
     time.sleep(1)
-    print("Бот запущений...")
+    print("Бот працює...")
     bot.infinity_polling(skip_pending=True)

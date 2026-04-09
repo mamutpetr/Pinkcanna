@@ -7,7 +7,7 @@ import openai
 # --- НАЛАШТУВАННЯ ---
 TOKEN = '8713738567:AAFguIBEPRlUKTfoshUEhHBD9nGGEaCJMPE'
 ADMIN_ID = 6887361815
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "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"
 
 bot = telebot.TeleBot(TOKEN)
 

@@ -10,7 +10,6 @@ ADMIN_ID = 6887361815
 OPENAI_API_KEY = "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"
 
 bot = telebot.TeleBot(TOKEN)
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # --- БАЗА ТОВАРІВ ---
 PRODUCTS = {
@@ -24,7 +23,7 @@ PRODUCTS = {
 
 user_carts = {}
 
-# --- КЛАВІАТУРИ ---
+# --- ГОЛОВНЕ МЕНЮ ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add("📂 Каталог", "🛒 Кошик")
@@ -32,10 +31,10 @@ def main_menu():
     markup.add("📞 Виклик консультанта")
     return markup
 
-# --- КОМАНДИ ---
+# --- ОБРОБНИКИ ТЕКСТУ ---
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "👋 Вітаємо у Happy Caps! Я твій смарт-помічник. Можеш запитати мене про товари або обрати щось у каталозі.", reply_markup=main_menu())
+    bot.send_message(message.chat.id, "👋 Вітаємо у Happy Caps! Оберіть товар у каталозі або просто запитайте мене про щось — я підключений до ШІ.", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "📂 Каталог")
 def show_catalog(message):
@@ -54,26 +53,26 @@ def show_cart(message):
         total = sum([PRODUCTS[k]['price'] for k in user_carts[chat_id]])
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🚀 Оформити замовлення", callback_data="checkout"))
-        markup.add(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))
+        markup.add(types.InlineKeyboardButton("🗑 Очистити", callback_data="clear_cart"))
         bot.send_message(chat_id, f"🛍 **Ваш кошик:**\n\n{items}\n\n💰 Разом: {total} грн", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "📰 Новини")
 def show_news(message):
-    bot.send_message(message.chat.id, "📰 **Новини:** Бот тепер підключений до ШІ! Ставте будь-які питання про наш асортимент прямо в чаті.")
+    bot.send_message(message.chat.id, "📰 **Новини:** Бот тепер повністю інтегрований з ШІ! Ви можете запитати поради щодо вибору товарів прямо тут.")
 
 @bot.message_handler(func=lambda m: m.text == "📦 Мої замовлення")
 def show_orders(message):
-    bot.send_message(message.chat.id, "📦 Ваші замовлення обробляються менеджером. Очікуйте на дзвінок після оформлення.")
+    bot.send_message(message.chat.id, "📦 Ваші замовлення зберігаються в базі менеджера. Очікуйте на дзвінок.")
 
 @bot.message_handler(func=lambda m: m.text == "📞 Виклик консультанта")
 def call_consultant(message):
     user = message.from_user
     username = f"@{user.username}" if user.username else "прихований"
-    admin_msg = f"🚨 **ВИКЛИК КОНСУЛЬТАНТА!**\n\n👤 Клієнт: {user.first_name}\n📞 Юзернейм: {username}\n🆔 ID: {user.id}\n\nНапишіть йому: tg://user?id={user.id}"
+    admin_msg = f"🚨 **ВИКЛИК КОНСУЛЬТАНТА!**\n👤 Клієнт: {user.first_name}\n📞 Юзернейм: {username}\n🆔 ID: {user.id}\n\nНапишіть йому: tg://user?id={user.id}"
     bot.send_message(ADMIN_ID, admin_msg)
     bot.send_message(message.chat.id, "🔔 Менеджер отримав запит і скоро зв'яжеться з вами!")
 
-# --- CALLBACK ОБРОБКА ---
+# --- CALLBACKS (Кнопки під повідомленнями) ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     chat_id = call.message.chat.id
@@ -89,7 +88,7 @@ def callback_inline(call):
                 bot.send_photo(chat_id, photo, caption=f"🌟 **{item['name']}**\n\nЦіна: {item['price']} грн", reply_markup=markup)
             bot.delete_message(chat_id, call.message.message_id)
         except:
-            bot.send_message(chat_id, f"📦 **{item['name']}**\nЦіна: {item['price']} грн\n(Фото завантажується...)", reply_markup=markup)
+            bot.send_message(chat_id, f"📦 **{item['name']}**\nЦіна: {item['price']} грн", reply_markup=markup)
 
     elif call.data.startswith("buy_"):
         key = call.data.split("_", 1)[1]
@@ -100,7 +99,7 @@ def callback_inline(call):
     elif call.data == "checkout":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add(types.KeyboardButton("📱 Надіслати номер телефону", request_contact=True))
-        bot.send_message(chat_id, "Натисніть кнопку нижче, щоб завершити замовлення:", reply_markup=markup)
+        bot.send_message(chat_id, "Для завершення замовлення натисніть кнопку нижче:", reply_markup=markup)
 
     elif call.data == "back_to_catalog":
         bot.delete_message(chat_id, call.message.message_id)
@@ -110,7 +109,7 @@ def callback_inline(call):
         user_carts[chat_id] = []
         bot.edit_message_text("🛒 Кошик очищено.", chat_id, call.message.message_id)
 
-# --- ПРИЙОМ КОНТАКТУ ---
+# --- ПРИЙОМ НОМЕРА ТЕЛЕФОНУ ---
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
     chat_id = message.chat.id
@@ -125,27 +124,34 @@ def handle_contact(message):
 # --- ШІ КОНСУЛЬТАНТ ---
 @bot.message_handler(func=lambda m: True)
 def chat_with_ai(message):
-    # Ігноруємо команди меню
     nav_buttons = ["📂 Каталог", "🛒 Кошик", "📦 Мої замовлення", "📰 Новини", "📞 Виклик консультанта"]
     if message.text in nav_buttons:
         return
 
     try:
-        # Формуємо список товарів для знань ШІ
-        catalog_info = ", ".join([f"{p['name']} за {p['price']} грн" for p in PRODUCTS.values()])
+        # Ініціалізація клієнта OpenAI
+        ai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
         
-        response = client.chat.completions.create(
+        # Каталог для знань ШІ
+        catalog_info = ", ".join([f"{p['name']} ({p['price']} грн)" for p in PRODUCTS.values()])
+        
+        response = ai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": f"Ти ввічливий консультант Happy Caps. Ми продаємо: {catalog_info}. Відповідай коротко, українською мовою. Якщо клієнт хоче купити, кажи використовувати кнопку 'Каталог'."},
+                {"role": "system", "content": f"Ти консультант магазину Happy Caps. Товари: {catalog_info}. Відповідай коротко, українською."},
                 {"role": "user", "content": message.text}
             ],
-            timeout=15.0
+            timeout=20.0
         )
         bot.reply_to(message, response.choices[0].message.content)
+        
     except Exception as e:
-        print(f"AI Error: {e}")
-        bot.reply_to(message, "🤖 Вибачте, мережа перевантажена. Спробуйте ще раз за мить або натисніть 'Виклик консультанта'.")
+        error_str = str(e).lower()
+        if "insufficient_quota" in error_str:
+            bot.reply_to(message, "🤖 На жаль, ліміти ШІ вичерпані. Будь ласка, зверніться до консультанта.")
+        else:
+            bot.reply_to(message, f"🤖 Виникла помилка зв'язку. Спробуйте ще раз за мить.")
+        print(f"DEBUG Error: {e}")
 
 # --- ЗАПУСК ---
 if __name__ == "__main__":

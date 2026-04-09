@@ -8,7 +8,7 @@ from openai import OpenAI
 TOKEN = os.getenv("BOT_TOKEN")
 PAYMENT_TOKEN = os.getenv("PAYMENT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/" 
+WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/"
 
 bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -23,9 +23,12 @@ PRODUCTS = {
     "jelly": {"name": "СБД Желе 🍬", "price": 500}
 }
 
-# --- ЗБЕРІГАННЯ ДАНИХ ---
 user_carts = {}
 user_tapped_discounts = {}
+
+number_words = {
+    "одну":1, "один":1, "дві":2, "два":2, "три":3, "чотири":4, "п’ять":5, "шість":6
+}
 
 # --- ГОЛОВНЕ МЕНЮ ---
 def main_menu():
@@ -127,24 +130,34 @@ def success(message):
     user_carts[message.chat.id] = []
     user_tapped_discounts[message.chat.id] = 0
 
-# --- AI-ЧАТ З РОЗПІЗНАВАННЯМ КІЛЬКОСТІ ---
-number_words = {
-    "одну":1, "один":1, "дві":2, "два":2, "три":3, "чотири":4, "п’ять":5, "шість":6
-}
-
+# --- AI-КОНСУЛЬТАНТ ---
 @bot.message_handler(func=lambda m: True)
-def ai_order(message):
+def ai_consultant(message):
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку"]:
         return
 
     try:
-        text_lower = message.text.lower()
-        markup = types.InlineKeyboardMarkup()
-        added_any = False
+        # Підготовка опису товарів
+        catalog_text = ", ".join([f"{p['name']} ({p['price']} грн)" for p in PRODUCTS.values()])
+        
+        # Виклик GPT для консультації
+        response = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {"role": "system", "content": f"Ти продавець-консультант. Продавай товари з каталогу: {catalog_text}. "
+                                               "Пропонуй підбір, cross-sell, upsell, питай кількість і уточнюй бажання клієнта."},
+                {"role": "user", "content": message.text}
+            ]
+        )
 
+        ai_text = response.choices[0].message.content
+
+        # Генеруємо кнопки замовлення за товарами з тексту
+        markup = types.InlineKeyboardMarkup()
+        text_lower = message.text.lower()
+        added_any = False
         for key, item in PRODUCTS.items():
             if re.search(re.escape(item['name'].split()[0].lower()), text_lower):
-                # Шукаємо кількість
                 count = 1
                 for word, num in number_words.items():
                     if word in text_lower:
@@ -156,14 +169,15 @@ def ai_order(message):
                 ))
                 added_any = True
 
+        # Відповідь бота
         if added_any:
-            bot.send_message(message.chat.id, "Я зрозумів твоє замовлення. Натисни кнопку для додавання в кошик:", reply_markup=markup)
+            bot.send_message(message.chat.id, ai_text, reply_markup=markup)
         else:
-            bot.send_message(message.chat.id, "Не зміг зрозуміти товар. Можеш уточнити або вибрати з каталогу 📂")
+            bot.send_message(message.chat.id, ai_text)
 
     except Exception as e:
         print(e)
-        bot.send_message(message.chat.id, "⚠️ Виникла помилка при обробці замовлення через AI")
+        bot.send_message(message.chat.id, "⚠️ Консультант тимчасово не доступний")
 
 if __name__ == "__main__":
     bot.infinity_polling()

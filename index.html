@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Pink Canna Clicker</title>
+    <title>Pink Canna Tap</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -11,52 +11,48 @@
             align-items: center; justify-content: center; height: 100vh;
             overflow: hidden; font-family: 'Arial', sans-serif;
             background: url('background.jpg') no-repeat center center;
-            background-size: cover; color: white; user-select: none; -webkit-user-select: none;
+            background-size: cover; color: white; user-select: none;
         }
 
         #score-container {
-            position: absolute; top: 10%; font-size: 40px; font-weight: bold;
-            text-shadow: 2px 2px 8px rgba(0,0,0,0.8);
-            background: rgba(0, 0, 0, 0.4); padding: 10px 30px;
+            position: absolute; top: 8%; font-size: 42px; font-weight: bold;
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.9);
+            background: rgba(0, 0, 0, 0.5); padding: 10px 40px;
             border-radius: 50px; border: 2px solid #4dff4d;
-            display: flex; align-items: center; gap: 10px;
         }
 
-        #coin-container { position: relative; cursor: pointer; transition: transform 0.05s; z-index: 10; }
         #coin {
-            width: 280px; height: 280px;
+            width: 300px; height: 300px;
             background: url('coin.png') no-repeat center center;
-            background-size: contain; filter: drop-shadow(0 0 15px rgba(0,0,0,0.5));
+            background-size: contain; cursor: pointer;
+            transition: transform 0.05s;
+            filter: drop-shadow(0 0 20px rgba(0,0,0,0.5));
         }
-        #coin:active { transform: scale(0.92); }
+        #coin:active { transform: scale(0.9); }
 
         #claim-btn {
-            position: absolute; bottom: 50px; padding: 15px 30px;
-            background: #4dff4d; border: none; border-radius: 25px;
-            font-size: 18px; font-weight: bold; color: #000;
-            cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            transition: 0.2s;
+            position: absolute; bottom: 40px; padding: 18px 35px;
+            background: #4dff4d; border: none; border-radius: 30px;
+            font-size: 20px; font-weight: bold; color: #000;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.4); cursor: pointer;
         }
-        #claim-btn:active { transform: scale(0.95); background: #39e639; }
 
-        .tap-number {
-            position: absolute; color: #4dff4d; font-size: 32px; font-weight: bold;
-            pointer-events: none; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-            animation: moveUp 0.6s ease-out forwards; z-index: 100;
+        .tap-anim {
+            position: absolute; color: #4dff4d; font-size: 35px; font-weight: bold;
+            pointer-events: none; animation: moveUp 0.6s ease-out forwards;
+            text-shadow: 2px 2px 5px black;
         }
         @keyframes moveUp {
             0% { opacity: 1; transform: translateY(0); }
-            100% { opacity: 0; transform: translateY(-120px); }
+            100% { opacity: 0; transform: translateY(-130px); }
         }
     </style>
 </head>
 <body>
 
     <div id="score-container">🍀 <span id="score">0</span></div>
-
-    <div id="coin-container"><div id="coin"></div></div>
-
-    <button id="claim-btn">Використати знижку 💰</button>
+    <div id="coin"></div>
+    <button id="claim-btn">Обміняти на знижку 💰</button>
 
     <script>
         const tg = window.Telegram.WebApp;
@@ -69,39 +65,36 @@
 
         scoreElement.innerText = score;
 
-        function processTap(x, y) {
+        function handleTap(x, y) {
             score++;
             scoreElement.innerText = score;
             localStorage.setItem('hemp_score', score);
-            createTapAnimation(x, y);
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+            
+            const txt = document.createElement('div');
+            txt.innerText = '+1';
+            txt.className = 'tap-anim';
+            txt.style.left = x + 'px';
+            txt.style.top = y + 'px';
+            document.body.appendChild(txt);
+            setTimeout(() => txt.remove(), 600);
+            
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         }
 
         coin.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            processTap(e.touches[0].clientX, e.touches[0].clientY);
+            handleTap(e.touches[0].clientX, e.touches[0].clientY);
         });
 
         claimBtn.addEventListener('click', () => {
-            if (score >= 1000) {
-                tg.sendData(score.toString()); // Відправляємо кількість боту
-                localStorage.setItem('hemp_score', '0'); // Скидаємо рахунок
-                score = 0;
-                scoreElement.innerText = '0';
+            if (score >= 100) {
+                tg.sendData(score.toString()); // Шлемо цифру в бот
+                localStorage.setItem('hemp_score', '0');
+                tg.close();
             } else {
-                tg.showAlert("Мінімальний обмін — від 1,000 коїнів!");
+                tg.showAlert("Натапай хоча б 100 коїнів!");
             }
         });
-
-        function createTapAnimation(x, y) {
-            const num = document.createElement('div');
-            num.innerText = '+1';
-            num.className = 'tap-number';
-            num.style.left = `${x - 20}px`;
-            num.style.top = `${y - 40}px`;
-            document.body.appendChild(num);
-            setTimeout(() => num.remove(), 600);
-        }
     </script>
 </body>
 </html>

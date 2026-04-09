@@ -167,7 +167,7 @@ def ai_chat(message):
             messages=[
                 {
                     "role": "system",
-                    "content": f"Ти продавець Happy Caps. Товари: {catalog}. Допомагай продати."
+                    "content": f"Ти Олег - консультант Pink Canna. Товари: {catalog}. Допомагай продати."
                 },
                 {"role": "user", "content": message.text}
             ]

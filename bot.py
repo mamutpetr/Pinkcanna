@@ -12,7 +12,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PAYMENT_TOKEN = os.getenv("PAYMENT_TOKEN")
 # Вставте посилання на ваш хостинг, де лежить index.html та картинки
-WEB_APP_URL = "https://your-domain.com/index.html" 
+WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/" 
 
 bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)

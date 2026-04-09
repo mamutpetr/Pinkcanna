@@ -5,7 +5,7 @@ import os
 # --- НАЛАШТУВАННЯ ---
 TOKEN = os.getenv("BOT_TOKEN")
 PAYMENT_TOKEN = os.getenv("PAYMENT_TOKEN")
-WEB_APP_URL = "https://mamutpet.github.io/Pinkcanna/" 
+WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/" 
 
 bot = telebot.TeleBot(TOKEN)
 

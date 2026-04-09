@@ -137,7 +137,7 @@ def chat_with_ai(message):
             response = ai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": f"Ти професійний консультант магазину Happy Caps. Ми продаємо: {catalog_info}. Відповідай дружньо, коротко, українською мовою. Якщо клієнт запитує про покупку, направляй у 'Каталог'."},
+                    {"role": "system", "content": f"Ти Олег-професійний консультант магазину Pink Canna. Ми продаємо: {catalog_info}. Відповідай дружньо, коротко, українською мовою. Якщо клієнт запитує про покупку, направляй у 'Каталог'."},
                     {"role": "user", "content": message.text}
                 ],
                 timeout=20.0

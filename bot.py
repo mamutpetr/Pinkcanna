@@ -14,8 +14,11 @@ bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- ТОВАРИ ---
-# Оновлено ціни та додано назви файлів зображень
+# Оновлено: додано нові позиції Канни
 PRODUCTS = {
+    "kanna10x": {"name": "Канна 10х (Екстракт) 🌿", "price": 2500, "image": "kanna10x.jpg"},
+    "crystal": {"name": "Канна Crystal (Чистий ізолят) 💎", "price": 3000, "image": "kannacrystal.jpg"},
+    "strong": {"name": "Канна Strong (Максимальна сила) 🔥", "price": 3000, "image": "kannastrong.jpg"},
     "sleep": {"name": "Happy caps sleep (Інгалятор) 💤", "price": 2000, "image": "sleep.jpg"},
     "gaba": {"name": "Габа #9 🧠", "price": 400, "image": "gaba9.jpg"},
     "energy": {"name": "Happy caps energy ⚡", "price": 2000, "image": "energy.jpg"},
@@ -41,18 +44,18 @@ def main_menu():
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "🌿 Вітаємо у Pink Canna! Обирай якісний CBD.", reply_markup=main_menu())
+    bot.send_message(message.chat.id, "🌿 Вітаємо у Pink Canna! Обирай якісний CBD та екстракти Канни.", reply_markup=main_menu())
 
 # --- РОЗДІЛ НОВИНИ ---
 @bot.message_handler(func=lambda m: m.text == "📰 Новини")
 def news_section(message):
     text = (
-        "🌿 **Що таке CBD?**\n\n"
-        "CBD (Каннабідіол) — це натуральний екстракт конопель, який допомагає організму долати стрес, "
-        "біль та безсоння. Він **не є психоактивним**, тому не викликає відчуття «кайфу».\n\n"
+        "🌿 **Що таке CBD та Канна?**\n\n"
+        "**CBD** — натуральний екстракт конопель для спокою та відновлення. Не викликає сп'яніння.\n"
+        "**Канна (Sceletium tortuosum)** — традиційна рослина для покращення настрою та фокусу.\n\n"
         "⚖️ **Чому це легально?**\n\n"
         "В Україні ізолят CBD виключений зі списку наркотичних речовин згідно з **Постановою КМУ №324**. "
-        "Наші продукти легальні, сертифіковані та безпечні для використання."
+        "Наші продукти легальні, сертифіковані та безпечні."
     )
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
@@ -151,7 +154,6 @@ def ai_consultant(message):
 
     try:
         catalog_text = ", ".join([f"{p['name']} ({p['price']} грн)" for p in PRODUCTS.values()])
-        # Змінено модель на gpt-4o, бо gpt-5 ще не існує
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[

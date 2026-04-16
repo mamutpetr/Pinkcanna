@@ -61,17 +61,13 @@ CATEGORIES = {
 }
 
 PRODUCTS = {
-    # КАННА
     "kanna10x": {"name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
     "crystal": {"name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
     "strong": {"name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
-    # СБД
     "jelly": {"name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
-    # WELLNESS
     "sleep": {"name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
     "gaba": {"name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
     "energy": {"name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
-    # TOPICAL / VAPE
     "vape": {"name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
     "cream": {"name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
 }
@@ -84,6 +80,15 @@ DOSAGE_DATA = {
     "depression": {"name": "Депресія", "doses": {50: 76, 60: 88, 70: 99, 80: 111, 90: 122, 100: 133, 110: 145, 120: 156}},
     "migraine": {"name": "Мігрень", "doses": {50: 85, 60: 87, 70: 90, 80: 93, 90: 96, 100: 99, 110: 102, 120: 105}},
     "epilepsy": {"name": "Епілепсія", "doses": {50: 174, 60: 210, 70: 245, 80: 280, 90: 315, 100: 350, 110: 385, 120: 420}}
+}
+
+# Дані про вміст CBD в 1 піпетці
+CONC_DATA = {
+    5: {"10ml": 35, "30ml": 50},
+    10: {"10ml": 70, "30ml": 100},
+    15: {"10ml": 105, "30ml": 150},
+    20: {"10ml": 140, "30ml": 200},
+    30: {"10ml": 210, "30ml": 300}
 }
 
 # --- ФУНКЦІЯ ВІДПРАВКИ КАРТКИ ТОВАРУ ---
@@ -118,53 +123,69 @@ def start(message):
     add_user(message.chat.id)
     bot.send_message(message.chat.id, "🌿 Вітаємо у Pink Canna!", reply_markup=main_menu())
 
-# --- КАЛЬКУЛЯТОР ДОЗИ ---
+# --- КАЛЬКУЛЯТОР ДОЗИ (ІНТЕРАКТИВНИЙ) ---
 @bot.message_handler(func=lambda m: m.text == "🧮 Підбір дози CBD")
 def calculator_start(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for key, data in DOSAGE_DATA.items():
         markup.add(types.InlineKeyboardButton(data["name"], callback_data=f"calc_diag_{key}"))
-    bot.send_message(message.chat.id, "🩺 **Крок 1/2:** Оберіть ваш основний симптом або діагноз:", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "🩺 **Крок 1/3:** Оберіть ваш основний симптом або діагноз:", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("calc_diag_"))
 def calculator_weight(call):
     diag_key = call.data.replace("calc_diag_", "")
     markup = types.InlineKeyboardMarkup(row_width=4)
-    # Створюємо кнопки з вагою від 50 до 120
-    buttons = [types.InlineKeyboardButton(f"{w} кг", callback_data=f"calc_res_{diag_key}_{w}") for w in range(50, 130, 10)]
+    buttons = [types.InlineKeyboardButton(f"{w} кг", callback_data=f"calc_weight_{diag_key}_{w}") for w in range(50, 130, 10)]
     markup.add(*buttons)
-    bot.edit_message_text("⚖️ **Крок 2/2:** Оберіть вашу вагу:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="calc_back"))
+    bot.edit_message_text("⚖️ **Крок 2/3:** Оберіть вашу вагу тіла:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("calc_weight_"))
+def calculator_concentration(call):
+    parts = call.data.split("_")
+    diag_key = parts[2]
+    weight = int(parts[3])
+    dose = DOSAGE_DATA[diag_key]["doses"][weight]
+
+    markup = types.InlineKeyboardMarkup(row_width=5)
+    conc_buttons = [types.InlineKeyboardButton(f"{c}%", callback_data=f"calc_res_{diag_key}_{weight}_{c}") for c in [5, 10, 15, 20, 30]]
+    markup.add(*conc_buttons)
+    markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"calc_diag_{diag_key}"))
+
+    text = f"🎯 Ваша орієнтовна норма: **{dose} мг** CBD на добу.\n\n🧪 **Крок 3/3:** Оберіть концентрацію олії CBD, щоб розрахувати об'єм в піпетках:"
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("calc_res_"))
 def calculator_result(call):
     parts = call.data.split("_")
     diag_key = parts[2]
     weight = int(parts[3])
+    conc = int(parts[4])
     
     dose = DOSAGE_DATA[diag_key]["doses"][weight]
     diag_name = DOSAGE_DATA[diag_key]["name"]
     
-    # Логіка рекомендацій
-    if dose < 80:
-        rec = "💧 **Рекомендація:** Вам підійде олія **5%** (35 мг в 1 піпетці). Для досягнення дози потрібно близько 2 піпеток на добу."
-    elif 80 <= dose <= 130:
-        rec = "💧 **Рекомендація:** Найкращий вибір — олія **10%** (70 мг в 1 піпетці). Використовуйте 1-1.5 піпетки на добу."
-    elif 130 < dose <= 180:
-        rec = "💧 **Рекомендація:** Зверніть увагу на олію **15%** (105 мг в 1 піпетці) або **20%** (140 мг в 1 піпетці)."
-    else:
-        rec = "💧 **Рекомендація:** Для вашої дози найбільш економним варіантом буде олія **30%** (210 мг в 1 піпетці)."
+    pipette_10ml = CONC_DATA[conc]["10ml"]
+    pipette_30ml = CONC_DATA[conc]["30ml"]
+    
+    amt_10ml = round(dose / pipette_10ml, 1)
+    amt_30ml = round(dose / pipette_30ml, 1)
 
     text = (
-        f"📊 **Результат підбору:**\n\n"
-        f"• Сиптом: {diag_name}\n"
-        f"• Вага: {weight} кг\n"
-        f"🎯 **Ваша добова норма:** `{dose} мг` CBD\n\n"
-        f"{rec}\n\n"
-        f"*(Цей розрахунок є рекомендаційним і базується на стандартних протоколах дозування)*"
+        f"📊 **Ваш індивідуальний розрахунок:**\n\n"
+        f"🩺 Симптом: **{diag_name}**\n"
+        f"⚖️ Вага: **{weight} кг**\n"
+        f"🧪 Концентрація: **{conc}%**\n"
+        f"🎯 Добова норма: **{dose} мг** CBD\n\n"
+        f"💧 **Як приймати (в піпетках на добу):**\n"
+        f"• Якщо флакон **10 мл** (1 піпетка = {pipette_10ml} мг):\n  Вам потрібно `~ {amt_10ml} піпетки`\n"
+        f"• Якщо флакон **30 мл** (1 піпетка = {pipette_30ml} мг):\n  Вам потрібно `~ {amt_30ml} піпетки`\n\n"
+        f"💡 *Порада: розділіть цю дозу на ранковий та вечірній прийом.*\n"
+        f"*(Даний розрахунок базується на стандартних протоколах дозування)*"
     )
     
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("⬅️ Назад до розрахунку", callback_data="calc_back"))
+    markup.add(types.InlineKeyboardButton("🔄 Розрахувати заново", callback_data="calc_back"))
     
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
@@ -173,7 +194,8 @@ def calc_back(call):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for key, data in DOSAGE_DATA.items():
         markup.add(types.InlineKeyboardButton(data["name"], callback_data=f"calc_diag_{key}"))
-    bot.edit_message_text("🩺 **Крок 1/2:** Оберіть ваш основний симптом або діагноз:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text("🩺 **Крок 1/3:** Оберіть ваш основний симптом або діагноз:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
 
 # --- КАТАЛОГ ---
 @bot.message_handler(func=lambda m: m.text == "📂 Каталог")

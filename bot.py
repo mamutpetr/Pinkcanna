@@ -40,6 +40,13 @@ def db_add_to_cart(user_id, product_key):
         c.execute("INSERT INTO carts (user_id, product_key) VALUES (?, ?)", (user_id, product_key))
         conn.commit()
 
+def db_remove_one_from_cart(user_id, product_key):
+    with sqlite3.connect("pinkcanna.db") as conn:
+        c = conn.cursor()
+        # Видаляємо лише ОДИН запис конкретного товару для користувача
+        c.execute("DELETE FROM carts WHERE rowid = (SELECT rowid FROM carts WHERE user_id = ? AND product_key = ? LIMIT 1)", (user_id, product_key))
+        conn.commit()
+
 def db_get_cart(user_id):
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
@@ -55,16 +62,31 @@ def db_clear_cart(user_id):
 # --- КАТЕГОРІЇ ТА ТОВАРИ ---
 CATEGORIES = {
     "kanna": "🌿 Екстракти Канни",
-    "cbd": "🍬 СБД та Релакс",
+    "cbd": "💧 Олії та Релакс",
     "wellness": "🧠 Сон та Енергія",
     "topical": "🧴 Вейпи та Догляд"
 }
 
 PRODUCTS = {
+    # КАННА
     "kanna10x": {"name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
     "crystal": {"name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
     "strong": {"name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
+    # СБД ІНШЕ
     "jelly": {"name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
+    # СБД ОЛІЇ (10 мл)
+    "cbd_5_10": {"name": "Олія CBD 5% (10мл)", "price": 800, "image": "cbd_5_10.jpg", "category": "cbd", "short": "35мг в піпетці (500мг)", "info": "💧 **Олія CBD 5%:** Ідеально для легкого стресу та профілактики."},
+    "cbd_10_10": {"name": "Олія CBD 10% (10мл)", "price": 1300, "image": "cbd_10_10.jpg", "category": "cbd", "short": "70мг в піпетці (1000мг)", "info": "💧 **Олія CBD 10%:** Універсальна концентрація для сну та спокою."},
+    "cbd_15_10": {"name": "Олія CBD 15% (10мл)", "price": 1800, "image": "cbd_15_10.jpg", "category": "cbd", "short": "105мг в піпетці (1500мг)", "info": "💧 **Олія CBD 15%:** Для хронічного болю та підвищеної тривожності."},
+    "cbd_20_10": {"name": "Олія CBD 20% (10мл)", "price": 2100, "image": "cbd_20_10.jpg", "category": "cbd", "short": "140мг в піпетці (2000мг)", "info": "💧 **Олія CBD 20%:** Сильна дія для серйозних симптомів."},
+    "cbd_30_10": {"name": "Олія CBD 30% (10мл)", "price": 3400, "image": "cbd_30_10.jpg", "category": "cbd", "short": "210мг в піпетці (3000мг)", "info": "💧 **Олія CBD 30%:** Максимальна концентрація."},
+    # СБД ОЛІЇ (30 мл)
+    "cbd_5_30": {"name": "Олія CBD 5% (30мл)", "price": 2000, "image": "cbd_5_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 5% (30мл):** Вигідний формат."},
+    "cbd_10_30": {"name": "Олія CBD 10% (30мл)", "price": 3400, "image": "cbd_10_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 10% (30мл):** Вигідний формат."},
+    "cbd_15_30": {"name": "Олія CBD 15% (30мл)", "price": 4500, "image": "cbd_15_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 15% (30мл):** Вигідний формат."},
+    "cbd_20_30": {"name": "Олія CBD 20% (30мл)", "price": 5200, "image": "cbd_20_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 20% (30мл):** Вигідний формат."},
+    "cbd_30_30": {"name": "Олія CBD 30% (30мл)", "price": 8200, "image": "cbd_30_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 30% (30мл):** Вигідний формат."},
+    # WELLNESS & TOPICAL
     "sleep": {"name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
     "gaba": {"name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
     "energy": {"name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
@@ -82,7 +104,6 @@ DOSAGE_DATA = {
     "epilepsy": {"name": "Епілепсія", "doses": {50: 174, 60: 210, 70: 245, 80: 280, 90: 315, 100: 350, 110: 385, 120: 420}}
 }
 
-# Дані про вміст CBD в 1 піпетці
 CONC_DATA = {
     5: {"10ml": 35, "30ml": 50},
     10: {"10ml": 70, "30ml": 100},
@@ -133,6 +154,7 @@ def calculator_start(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("calc_diag_"))
 def calculator_weight(call):
+    bot.answer_callback_query(call.id)
     diag_key = call.data.replace("calc_diag_", "")
     markup = types.InlineKeyboardMarkup(row_width=4)
     buttons = [types.InlineKeyboardButton(f"{w} кг", callback_data=f"calc_weight_{diag_key}_{w}") for w in range(50, 130, 10)]
@@ -142,6 +164,7 @@ def calculator_weight(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("calc_weight_"))
 def calculator_concentration(call):
+    bot.answer_callback_query(call.id)
     parts = call.data.split("_")
     diag_key = parts[2]
     weight = int(parts[3])
@@ -157,6 +180,7 @@ def calculator_concentration(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("calc_res_"))
 def calculator_result(call):
+    bot.answer_callback_query(call.id)
     parts = call.data.split("_")
     diag_key = parts[2]
     weight = int(parts[3])
@@ -178,24 +202,27 @@ def calculator_result(call):
         f"🧪 Концентрація: **{conc}%**\n"
         f"🎯 Добова норма: **{dose} мг** CBD\n\n"
         f"💧 **Як приймати (в піпетках на добу):**\n"
-        f"• Якщо флакон **10 мл** (1 піпетка = {pipette_10ml} мг):\n  Вам потрібно `~ {amt_10ml} піпетки`\n"
-        f"• Якщо флакон **30 мл** (1 піпетка = {pipette_30ml} мг):\n  Вам потрібно `~ {amt_30ml} піпетки`\n\n"
+        f"• Флакон **10 мл**: `~ {amt_10ml} піпетки`\n"
+        f"• Флакон **30 мл**: `~ {amt_30ml} піпетки`\n\n"
         f"💡 *Порада: розділіть цю дозу на ранковий та вечірній прийом.*\n"
-        f"*(Даний розрахунок базується на стандартних протоколах дозування)*"
     )
     
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🔄 Розрахувати заново", callback_data="calc_back"))
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton(f"🛒 Купити {conc}% (10мл)", callback_data=f"buy_cbd_{conc}_10"),
+        types.InlineKeyboardButton(f"🛒 Купити {conc}% (30мл)", callback_data=f"buy_cbd_{conc}_30"),
+        types.InlineKeyboardButton("🔄 Розрахувати заново", callback_data="calc_back")
+    )
     
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "calc_back")
 def calc_back(call):
+    bot.answer_callback_query(call.id)
     markup = types.InlineKeyboardMarkup(row_width=1)
     for key, data in DOSAGE_DATA.items():
         markup.add(types.InlineKeyboardButton(data["name"], callback_data=f"calc_diag_{key}"))
     bot.edit_message_text("🩺 **Крок 1/3:** Оберіть ваш основний симптом або діагноз:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-
 
 # --- КАТАЛОГ ---
 @bot.message_handler(func=lambda m: m.text == "📂 Каталог")
@@ -207,8 +234,8 @@ def show_categories(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def show_category_items(call):
-    cat_id = call.data.split("_")[1]
     bot.answer_callback_query(call.id)
+    cat_id = call.data.split("_")[1]
     for key, item in PRODUCTS.items():
         if item["category"] == cat_id:
             send_product_card(call.message.chat.id, key)
@@ -218,16 +245,23 @@ def show_category_items(call):
 def get_discount_from_webapp(message):
     try:
         data = message.web_app_data.data
-        discount_amount = int(re.search(r'\d+', data).group())
-        user_tapped_discounts[message.chat.id] = discount_amount
-        bot.send_message(message.chat.id, f"🍀 Супер! Знижка **{discount_amount} грн** активована. Перейдіть до кошика для оформлення.", parse_mode="Markdown")
+        match = re.search(r'\d+', data)
+        if match:
+            discount_amount = int(match.group())
+            user_tapped_discounts[message.chat.id] = discount_amount
+            bot.send_message(message.chat.id, f"🍀 Супер! Знижка **{discount_amount} грн** активована. Перейдіть до кошика для оформлення.", parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, "⚠️ Дані про знижку не розпізнано.")
     except Exception as e:
-        bot.send_message(message.chat.id, "⚠️ Не вдалося розпізнати знижку. Спробуйте ще раз.")
+        bot.send_message(message.chat.id, "⚠️ Сталася помилка при отриманні знижки.")
 
-# --- ОБРОБКА КНОПОК ---
+# --- ОБРОБКА КНОПОК КУПІВЛІ ТА ІНФО ---
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_") or call.data.startswith("info_"))
 def handle_actions(call):
-    action, key = call.data.split("_")
+    # Відокремлюємо дію від ключа (наприклад buy_cbd_10_10)
+    parts = call.data.split("_", 1)
+    action = parts[0]
+    key = parts[1]
     
     if action == "buy":
         db_add_to_cart(call.message.chat.id, key)
@@ -238,36 +272,74 @@ def handle_actions(call):
         bot.send_message(call.message.chat.id, PRODUCTS[key]['info'], parse_mode="Markdown")
         send_product_card(call.message.chat.id, key)
 
-# --- КОШИК ---
+# --- РОЗУМНИЙ КОШИК ---
 @bot.message_handler(func=lambda m: m.text == "🛒 Кошик")
-def show_cart(message):
-    chat_id = message.chat.id
+def render_cart_message(message):
+    render_cart(message.chat.id)
+
+def render_cart(chat_id, message_id=None):
     items = db_get_cart(chat_id)
-    
     if not items:
-        bot.send_message(chat_id, "🛒 Ваш кошик порожній.")
+        text = "🛒 Ваш кошик порожній."
+        if message_id:
+            bot.edit_message_text(text, chat_id, message_id)
+        else:
+            bot.send_message(chat_id, text)
         return
         
     total = sum(PRODUCTS[k]['price'] for k in items)
     discount = user_tapped_discounts.get(chat_id, 0)
     
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("💳 Оформити", callback_data="checkout"))
-    markup.add(types.InlineKeyboardButton("🗑 Очистити", callback_data="clear_cart"))
+    markup = types.InlineKeyboardMarkup(row_width=3)
     
-    summary = "\n".join([f"• {PRODUCTS[k]['name']} x{items.count(k)}" for k in set(items)])
+    # Підраховуємо кількість кожного товару
+    item_counts = {}
+    for k in items:
+        item_counts[k] = item_counts.get(k, 0) + 1
+        
+    summary = ""
+    for k, count in item_counts.items():
+        p = PRODUCTS[k]
+        summary += f"• {p['name']} x{count} = {p['price'] * count} грн\n"
+        # Кнопки керування кількістю
+        markup.row(
+            types.InlineKeyboardButton("➖", callback_data=f"cartrem_{k}"),
+            types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"),
+            types.InlineKeyboardButton("➕", callback_data=f"cartadd_{k}")
+        )
+        
+    markup.row(types.InlineKeyboardButton("💳 Оформити замовлення", callback_data="checkout"))
+    markup.row(types.InlineKeyboardButton("🗑 Очистити весь кошик", callback_data="clear_cart"))
     
-    text = f"**Ваш кошик:**\n{summary}\n\n"
+    text = f"**Ваш кошик:**\n\n{summary}\n"
     if discount > 0:
         final_total = total - discount if discount < total else 1
-        text += f"🎁 Знижка з тапалки: -{discount} грн\n💰 **До сплати: {final_total} грн**"
+        text += f"🎁 Знижка: -{discount} грн\n💰 **До сплати: {final_total} грн**"
     else:
         text += f"💰 **Разом: {total} грн**"
         
-    bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
+    if message_id:
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cartadd_") or call.data.startswith("cartrem_"))
+def modify_cart(call):
+    bot.answer_callback_query(call.id)
+    parts = call.data.split("_", 1)
+    action = parts[0]
+    key = parts[1]
+    
+    if action == "cartadd":
+        db_add_to_cart(call.message.chat.id, key)
+    elif action == "cartrem":
+        db_remove_one_from_cart(call.message.chat.id, key)
+        
+    render_cart(call.message.chat.id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear(call):
+    bot.answer_callback_query(call.id)
     db_clear_cart(call.message.chat.id)
     if call.message.chat.id in user_tapped_discounts:
         user_tapped_discounts[call.message.chat.id] = 0
@@ -275,11 +347,12 @@ def clear(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def pay(call):
+    bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     items = db_get_cart(chat_id)
     
     if not items:
-        bot.answer_callback_query(call.id, "Кошик порожній!")
+        bot.send_message(chat_id, "Кошик порожній!")
         return
 
     total_price = sum(PRODUCTS[k]['price'] for k in items)
@@ -332,6 +405,7 @@ def admin_panel(message):
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
 def admin_broadcast_req(call):
+    bot.answer_callback_query(call.id)
     if str(call.message.chat.id) != str(ADMIN_ID): return
     msg = bot.send_message(call.message.chat.id, "Надішліть текст для розсилки всім користувачам:")
     bot.register_next_step_handler(msg, process_broadcast)
@@ -357,10 +431,18 @@ def news_section(message):
 @bot.message_handler(func=lambda m: True)
 def ai_consultant(message):
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD"]: return
+    
+    # Динамічно передаємо актуальні товари та ціни до ШІ
+    catalog_text = ", ".join([f"{p['name']} ({p['price']} грн)" for p in PRODUCTS.values()])
+    system_prompt = f"Ти привітний експерт Pink Canna. Наш актуальний асортимент: {catalog_text}. Допомагай підбирати товари, консультуй та продавай. Всі товари легальні за Постановою КМУ №324. Відповідай лаконічно."
+    
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "Ти експерт Pink Canna."}, {"role": "user", "content": message.text}]
+            messages=[
+                {"role": "system", "content": system_prompt}, 
+                {"role": "user", "content": message.text}
+            ]
         )
         bot.send_message(message.chat.id, response.choices[0].message.content)
     except: 

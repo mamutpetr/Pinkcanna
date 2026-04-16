@@ -258,7 +258,6 @@ def get_discount_from_webapp(message):
 # --- ОБРОБКА КНОПОК КУПІВЛІ ТА ІНФО ---
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_") or call.data.startswith("info_"))
 def handle_actions(call):
-    # Відокремлюємо дію від ключа (наприклад buy_cbd_10_10)
     parts = call.data.split("_", 1)
     action = parts[0]
     key = parts[1]
@@ -292,7 +291,6 @@ def render_cart(chat_id, message_id=None):
     
     markup = types.InlineKeyboardMarkup(row_width=3)
     
-    # Підраховуємо кількість кожного товару
     item_counts = {}
     for k in items:
         item_counts[k] = item_counts.get(k, 0) + 1
@@ -301,7 +299,6 @@ def render_cart(chat_id, message_id=None):
     for k, count in item_counts.items():
         p = PRODUCTS[k]
         summary += f"• {p['name']} x{count} = {p['price'] * count} грн\n"
-        # Кнопки керування кількістю
         markup.row(
             types.InlineKeyboardButton("➖", callback_data=f"cartrem_{k}"),
             types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"),
@@ -436,13 +433,15 @@ def ai_consultant(message):
     # Формуємо рядок з товарами (Код: Назва - Ціна) для ШІ
     catalog_text = ", ".join([f"{key}: {p['name']} ({p['price']} грн)" for key, p in PRODUCTS.items()])
     
-    # Новий системний промпт із правилом квадратної дужки
+    # ОНОВЛЕНИЙ ПРОМПТ: Вчимо ШІ продавати дозовано
     system_prompt = (
         f"Ти привітний експерт магазину Pink Canna. Наш асортимент (Код: Назва - Ціна): {catalog_text}. "
-        f"Допомагай підбирати товари та продавай. "
-        f"ВАЖЛИВО: Якщо ти рекомендуєш клієнту конкретний товар, обов'язково напиши його 'Код' у квадратних дужках десь у тексті "
-        f"(наприклад: 'Раджу спробувати цей варіант: [strong] або [cbd_20_10]'). "
-        f"Відповідай лаконічно та дружньо."
+        f"Допомагай підбирати товари та продавай. Всі товари легальні (Постанова КМУ №324).\n\n"
+        f"ТВОЇ ПРАВИЛА ПРОДАЖІВ:\n"
+        f"1. НІКОЛИ не пропонуй більше 1-2 товарів за одне повідомлення, щоб не лякати клієнта вибором.\n"
+        f"2. Завжди запитуй в кінці, чи показати інші варіанти (наприклад: 'Чи хочете подивитися щось сильніше?', 'Можливо, вам цікавий інший формат?').\n"
+        f"3. ВАЖЛИВО: Щоб бот показав картку товару, ти МАЄШ написати 'Код' рекомендованого товару в квадратних дужках десь у тексті (наприклад: 'Раджу спробувати [strong] або [cbd_20_10]').\n"
+        f"Відповідай максимально природно, ніби спілкуєшся з другом у чаті."
     )
     
     try:
@@ -465,7 +464,7 @@ def ai_consultant(message):
         if clean_text:
             bot.send_message(message.chat.id, clean_text)
             
-        # Для кожного знайденого коду відправляємо картку товару!
+        # Для кожного знайденого коду відправляємо картку товару! (Але їх тепер буде максимум 1-2)
         for key in product_keys:
             if key in PRODUCTS:
                 send_product_card(message.chat.id, key)

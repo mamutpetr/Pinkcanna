@@ -76,6 +76,16 @@ PRODUCTS = {
     "cream": {"name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
 }
 
+# --- ДАНІ КАЛЬКУЛЯТОРА ДОЗИ ---
+DOSAGE_DATA = {
+    "ptsd_insomnia": {"name": "ПТСР / Безсоння / Артрит", "doses": {50: 78, 60: 85, 70: 93, 80: 100, 90: 108, 100: 115, 110: 123, 120: 130}},
+    "pain": {"name": "Хронічний біль", "doses": {50: 91, 60: 99, 70: 106, 80: 113, 90: 120, 100: 128, 110: 135, 120: 142}},
+    "stress": {"name": "Стрес / Фобії", "doses": {50: 64, 60: 68, 70: 73, 80: 77, 90: 82, 100: 87, 110: 91, 120: 95}},
+    "depression": {"name": "Депресія", "doses": {50: 76, 60: 88, 70: 99, 80: 111, 90: 122, 100: 133, 110: 145, 120: 156}},
+    "migraine": {"name": "Мігрень", "doses": {50: 85, 60: 87, 70: 90, 80: 93, 90: 96, 100: 99, 110: 102, 120: 105}},
+    "epilepsy": {"name": "Епілепсія", "doses": {50: 174, 60: 210, 70: 245, 80: 280, 90: 315, 100: 350, 110: 385, 120: 420}}
+}
+
 # --- ФУНКЦІЯ ВІДПРАВКИ КАРТКИ ТОВАРУ ---
 def send_product_card(chat_id, key):
     item = PRODUCTS[key]
@@ -84,9 +94,7 @@ def send_product_card(chat_id, key):
         types.InlineKeyboardButton(f"🛒 Купити за {item['price']} грн", callback_data=f"buy_{key}"),
         types.InlineKeyboardButton("🔍 Дізнатись більше", callback_data=f"info_{key}")
     )
-    
     caption = f"🏷 **{item['name']}**\n\n📝 {item['short']}\n\n💰 **Ціна: {item['price']} грн**"
-    
     try:
         if os.path.exists(item['image']):
             with open(item['image'], 'rb') as photo:
@@ -96,12 +104,13 @@ def send_product_card(chat_id, key):
     except:
         bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="Markdown")
 
-# --- МЕНЮ ТА КАТАЛОГ ---
+# --- ГОЛОВНЕ МЕНЮ ---
 def main_menu():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add("📂 Каталог", "🛒 Кошик")
-    m.add(types.KeyboardButton("🍀 Натапати знижку", web_app=types.WebAppInfo(url=WEB_APP_URL)))
-    m.add("📞 Консультант", "📰 Новини")
+    m.row("📂 Каталог", "🛒 Кошик")
+    m.row("🧮 Підбір дози CBD")
+    m.row(types.KeyboardButton("🍀 Натапати знижку", web_app=types.WebAppInfo(url=WEB_APP_URL)))
+    m.row("📞 Консультант", "📰 Новини")
     return m
 
 @bot.message_handler(commands=['start'])
@@ -109,6 +118,64 @@ def start(message):
     add_user(message.chat.id)
     bot.send_message(message.chat.id, "🌿 Вітаємо у Pink Canna!", reply_markup=main_menu())
 
+# --- КАЛЬКУЛЯТОР ДОЗИ ---
+@bot.message_handler(func=lambda m: m.text == "🧮 Підбір дози CBD")
+def calculator_start(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for key, data in DOSAGE_DATA.items():
+        markup.add(types.InlineKeyboardButton(data["name"], callback_data=f"calc_diag_{key}"))
+    bot.send_message(message.chat.id, "🩺 **Крок 1/2:** Оберіть ваш основний симптом або діагноз:", reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("calc_diag_"))
+def calculator_weight(call):
+    diag_key = call.data.replace("calc_diag_", "")
+    markup = types.InlineKeyboardMarkup(row_width=4)
+    # Створюємо кнопки з вагою від 50 до 120
+    buttons = [types.InlineKeyboardButton(f"{w} кг", callback_data=f"calc_res_{diag_key}_{w}") for w in range(50, 130, 10)]
+    markup.add(*buttons)
+    bot.edit_message_text("⚖️ **Крок 2/2:** Оберіть вашу вагу:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("calc_res_"))
+def calculator_result(call):
+    parts = call.data.split("_")
+    diag_key = parts[2]
+    weight = int(parts[3])
+    
+    dose = DOSAGE_DATA[diag_key]["doses"][weight]
+    diag_name = DOSAGE_DATA[diag_key]["name"]
+    
+    # Логіка рекомендацій
+    if dose < 80:
+        rec = "💧 **Рекомендація:** Вам підійде олія **5%** (35 мг в 1 піпетці). Для досягнення дози потрібно близько 2 піпеток на добу."
+    elif 80 <= dose <= 130:
+        rec = "💧 **Рекомендація:** Найкращий вибір — олія **10%** (70 мг в 1 піпетці). Використовуйте 1-1.5 піпетки на добу."
+    elif 130 < dose <= 180:
+        rec = "💧 **Рекомендація:** Зверніть увагу на олію **15%** (105 мг в 1 піпетці) або **20%** (140 мг в 1 піпетці)."
+    else:
+        rec = "💧 **Рекомендація:** Для вашої дози найбільш економним варіантом буде олія **30%** (210 мг в 1 піпетці)."
+
+    text = (
+        f"📊 **Результат підбору:**\n\n"
+        f"• Сиптом: {diag_name}\n"
+        f"• Вага: {weight} кг\n"
+        f"🎯 **Ваша добова норма:** `{dose} мг` CBD\n\n"
+        f"{rec}\n\n"
+        f"*(Цей розрахунок є рекомендаційним і базується на стандартних протоколах дозування)*"
+    )
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("⬅️ Назад до розрахунку", callback_data="calc_back"))
+    
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data == "calc_back")
+def calc_back(call):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for key, data in DOSAGE_DATA.items():
+        markup.add(types.InlineKeyboardButton(data["name"], callback_data=f"calc_diag_{key}"))
+    bot.edit_message_text("🩺 **Крок 1/2:** Оберіть ваш основний симптом або діагноз:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+# --- КАТАЛОГ ---
 @bot.message_handler(func=lambda m: m.text == "📂 Каталог")
 def show_categories(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -146,9 +213,7 @@ def handle_actions(call):
         
     elif action == "info":
         bot.answer_callback_query(call.id)
-        # Надсилаємо повний опис
         bot.send_message(call.message.chat.id, PRODUCTS[key]['info'], parse_mode="Markdown")
-        # Дублюємо картку товару
         send_product_card(call.message.chat.id, key)
 
 # --- КОШИК ---
@@ -229,7 +294,7 @@ def success(message):
             )
             bot.send_message(ADMIN_ID, order_info)
         except Exception as e:
-            print("Не вдалося відправити сповіщення адміну:", e)
+            pass
 
     db_clear_cart(message.chat.id)
     if message.chat.id in user_tapped_discounts:
@@ -238,8 +303,7 @@ def success(message):
 # --- АДМІН ПАНЕЛЬ ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
-    if str(message.chat.id) != str(ADMIN_ID):
-        return
+    if str(message.chat.id) != str(ADMIN_ID): return
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📢 Зробити розсилку", callback_data="admin_broadcast"))
     bot.send_message(message.chat.id, "👨‍💻 **Панель адміністратора**", reply_markup=markup, parse_mode="Markdown")
@@ -255,7 +319,6 @@ def process_broadcast(message):
         c = conn.cursor()
         c.execute("SELECT user_id FROM users")
         users = c.fetchall()
-    
     count = 0
     for u in users:
         try:
@@ -271,7 +334,7 @@ def news_section(message):
 
 @bot.message_handler(func=lambda m: True)
 def ai_consultant(message):
-    if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини"]: return
+    if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD"]: return
     try:
         response = client.chat.completions.create(
             model="gpt-4o",

@@ -430,11 +430,20 @@ def news_section(message):
 
 @bot.message_handler(func=lambda m: True)
 def ai_consultant(message):
+    # Ігноруємо команди меню
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD"]: return
     
-    # Динамічно передаємо актуальні товари та ціни до ШІ
-    catalog_text = ", ".join([f"{p['name']} ({p['price']} грн)" for p in PRODUCTS.values()])
-    system_prompt = f"Ти привітний експерт Pink Canna. Наш актуальний асортимент: {catalog_text}. Допомагай підбирати товари, консультуй та продавай. Всі товари легальні за Постановою КМУ №324. Відповідай лаконічно."
+    # Формуємо рядок з товарами (Код: Назва - Ціна) для ШІ
+    catalog_text = ", ".join([f"{key}: {p['name']} ({p['price']} грн)" for key, p in PRODUCTS.items()])
+    
+    # Новий системний промпт із правилом квадратної дужки
+    system_prompt = (
+        f"Ти привітний експерт магазину Pink Canna. Наш асортимент (Код: Назва - Ціна): {catalog_text}. "
+        f"Допомагай підбирати товари та продавай. "
+        f"ВАЖЛИВО: Якщо ти рекомендуєш клієнту конкретний товар, обов'язково напиши його 'Код' у квадратних дужках десь у тексті "
+        f"(наприклад: 'Раджу спробувати цей варіант: [strong] або [cbd_20_10]'). "
+        f"Відповідай лаконічно та дружньо."
+    )
     
     try:
         response = client.chat.completions.create(
@@ -444,8 +453,24 @@ def ai_consultant(message):
                 {"role": "user", "content": message.text}
             ]
         )
-        bot.send_message(message.chat.id, response.choices[0].message.content)
-    except: 
+        
+        ai_text = response.choices[0].message.content
+        
+        # Витягуємо всі коди товарів у дужках
+        product_keys = re.findall(r'\[([a-zA-Z0-9_]+)\]', ai_text)
+        
+        # Очищаємо текст від дужок перед відправкою клієнту
+        clean_text = re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip()
+        
+        if clean_text:
+            bot.send_message(message.chat.id, clean_text)
+            
+        # Для кожного знайденого коду відправляємо картку товару!
+        for key in product_keys:
+            if key in PRODUCTS:
+                send_product_card(message.chat.id, key)
+                
+    except Exception as e: 
         bot.send_message(message.chat.id, "⚠️ Консультант тимчасово недоступний.")
 
 if __name__ == "__main__":

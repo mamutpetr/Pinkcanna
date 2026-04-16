@@ -15,24 +15,40 @@ WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/"
 bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Словник для збереження знижок з тапалки
-user_tapped_discounts = {}
-
-# --- БАЗА ДАНИХ ---
+# --- БАЗА ДАНИХ (Кошик, Знижки, Пам'ять ШІ) ---
 def init_db():
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS carts (user_id INTEGER, product_key TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
+        # Таблиця користувачів тепер зберігає і знижку
+        c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, discount INTEGER DEFAULT 0)''')
+        # Таблиця для пам'яті ШІ
+        c.execute('''CREATE TABLE IF NOT EXISTS ai_history (user_id INTEGER, role TEXT, content TEXT)''')
         conn.commit()
 
 init_db()
 
-def add_user(user_id):
+def db_manage_user(user_id, discount=None):
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
         c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+        if discount is not None:
+            c.execute("UPDATE users SET discount = ? WHERE user_id = ?", (discount, user_id))
         conn.commit()
+        c.execute("SELECT discount FROM users WHERE user_id = ?", (user_id,))
+        res = c.fetchone()
+        return res[0] if res else 0
+
+def db_manage_history(user_id, role=None, content=None):
+    with sqlite3.connect("pinkcanna.db") as conn:
+        c = conn.cursor()
+        if role and content:
+            c.execute("INSERT INTO ai_history VALUES (?, ?, ?)", (user_id, role, content))
+            # Зберігаємо лише останні 10 реплік, щоб не перевантажувати контекст і не витрачати токени
+            c.execute("DELETE FROM ai_history WHERE rowid NOT IN (SELECT rowid FROM ai_history WHERE user_id = ? ORDER BY rowid DESC LIMIT 10)", (user_id,))
+            conn.commit()
+        c.execute("SELECT role, content FROM ai_history WHERE user_id = ? ORDER BY rowid ASC", (user_id,))
+        return [{"role": row[0], "content": row[1]} for row in c.fetchall()]
 
 def db_add_to_cart(user_id, product_key):
     with sqlite3.connect("pinkcanna.db") as conn:
@@ -43,7 +59,6 @@ def db_add_to_cart(user_id, product_key):
 def db_remove_one_from_cart(user_id, product_key):
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
-        # Видаляємо лише ОДИН запис конкретного товару для користувача
         c.execute("DELETE FROM carts WHERE rowid = (SELECT rowid FROM carts WHERE user_id = ? AND product_key = ? LIMIT 1)", (user_id, product_key))
         conn.commit()
 
@@ -68,25 +83,20 @@ CATEGORIES = {
 }
 
 PRODUCTS = {
-    # КАННА
     "kanna10x": {"name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
     "crystal": {"name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
     "strong": {"name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
-    # СБД ІНШЕ
     "jelly": {"name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
-    # СБД ОЛІЇ (10 мл)
     "cbd_5_10": {"name": "Олія CBD 5% (10мл)", "price": 800, "image": "cbd_5_10.jpg", "category": "cbd", "short": "35мг в піпетці (500мг)", "info": "💧 **Олія CBD 5%:** Ідеально для легкого стресу та профілактики."},
     "cbd_10_10": {"name": "Олія CBD 10% (10мл)", "price": 1300, "image": "cbd_10_10.jpg", "category": "cbd", "short": "70мг в піпетці (1000мг)", "info": "💧 **Олія CBD 10%:** Універсальна концентрація для сну та спокою."},
     "cbd_15_10": {"name": "Олія CBD 15% (10мл)", "price": 1800, "image": "cbd_15_10.jpg", "category": "cbd", "short": "105мг в піпетці (1500мг)", "info": "💧 **Олія CBD 15%:** Для хронічного болю та підвищеної тривожності."},
     "cbd_20_10": {"name": "Олія CBD 20% (10мл)", "price": 2100, "image": "cbd_20_10.jpg", "category": "cbd", "short": "140мг в піпетці (2000мг)", "info": "💧 **Олія CBD 20%:** Сильна дія для серйозних симптомів."},
     "cbd_30_10": {"name": "Олія CBD 30% (10мл)", "price": 3400, "image": "cbd_30_10.jpg", "category": "cbd", "short": "210мг в піпетці (3000мг)", "info": "💧 **Олія CBD 30%:** Максимальна концентрація."},
-    # СБД ОЛІЇ (30 мл)
     "cbd_5_30": {"name": "Олія CBD 5% (30мл)", "price": 2000, "image": "cbd_5_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 5% (30мл):** Вигідний формат."},
     "cbd_10_30": {"name": "Олія CBD 10% (30мл)", "price": 3400, "image": "cbd_10_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 10% (30мл):** Вигідний формат."},
     "cbd_15_30": {"name": "Олія CBD 15% (30мл)", "price": 4500, "image": "cbd_15_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 15% (30мл):** Вигідний формат."},
     "cbd_20_30": {"name": "Олія CBD 20% (30мл)", "price": 5200, "image": "cbd_20_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 20% (30мл):** Вигідний формат."},
     "cbd_30_30": {"name": "Олія CBD 30% (30мл)", "price": 8200, "image": "cbd_30_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 30% (30мл):** Вигідний формат."},
-    # WELLNESS & TOPICAL
     "sleep": {"name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
     "gaba": {"name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
     "energy": {"name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
@@ -94,7 +104,6 @@ PRODUCTS = {
     "cream": {"name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
 }
 
-# --- ДАНІ КАЛЬКУЛЯТОРА ДОЗИ ---
 DOSAGE_DATA = {
     "ptsd_insomnia": {"name": "ПТСР / Безсоння / Артрит", "doses": {50: 78, 60: 85, 70: 93, 80: 100, 90: 108, 100: 115, 110: 123, 120: 130}},
     "pain": {"name": "Хронічний біль", "doses": {50: 91, 60: 99, 70: 106, 80: 113, 90: 120, 100: 128, 110: 135, 120: 142}},
@@ -141,7 +150,7 @@ def main_menu():
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    add_user(message.chat.id)
+    db_manage_user(message.chat.id)
     bot.send_message(message.chat.id, "🌿 Вітаємо у Pink Canna!", reply_markup=main_menu())
 
 # --- КАЛЬКУЛЯТОР ДОЗИ (ІНТЕРАКТИВНИЙ) ---
@@ -248,8 +257,9 @@ def get_discount_from_webapp(message):
         match = re.search(r'\d+', data)
         if match:
             discount_amount = int(match.group())
-            user_tapped_discounts[message.chat.id] = discount_amount
-            bot.send_message(message.chat.id, f"🍀 Супер! Знижка **{discount_amount} грн** активована. Перейдіть до кошика для оформлення.", parse_mode="Markdown")
+            # Зберігаємо знижку в Базу Даних!
+            db_manage_user(message.chat.id, discount_amount)
+            bot.send_message(message.chat.id, f"🍀 Супер! Знижка **{discount_amount} грн** активована і збережена. Перейдіть до кошика для оформлення.", parse_mode="Markdown")
         else:
             bot.send_message(message.chat.id, "⚠️ Дані про знижку не розпізнано.")
     except Exception as e:
@@ -287,7 +297,8 @@ def render_cart(chat_id, message_id=None):
         return
         
     total = sum(PRODUCTS[k]['price'] for k in items)
-    discount = user_tapped_discounts.get(chat_id, 0)
+    # Дістаємо знижку з Бази Даних
+    discount = db_manage_user(chat_id)
     
     markup = types.InlineKeyboardMarkup(row_width=3)
     
@@ -311,7 +322,7 @@ def render_cart(chat_id, message_id=None):
     text = f"**Ваш кошик:**\n\n{summary}\n"
     if discount > 0:
         final_total = total - discount if discount < total else 1
-        text += f"🎁 Знижка: -{discount} грн\n💰 **До сплати: {final_total} грн**"
+        text += f"🎁 Ваша знижка: -{discount} грн\n💰 **До сплати: {final_total} грн**"
     else:
         text += f"💰 **Разом: {total} грн**"
         
@@ -338,8 +349,8 @@ def modify_cart(call):
 def clear(call):
     bot.answer_callback_query(call.id)
     db_clear_cart(call.message.chat.id)
-    if call.message.chat.id in user_tapped_discounts:
-        user_tapped_discounts[call.message.chat.id] = 0
+    # Обнуляємо знижку в БД при очищенні
+    db_manage_user(call.message.chat.id, 0)
     bot.edit_message_text("🗑 Кошик очищено.", call.message.chat.id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
@@ -355,7 +366,7 @@ def pay(call):
     total_price = sum(PRODUCTS[k]['price'] for k in items)
     prices = [types.LabeledPrice(f"{PRODUCTS[k]['name']} x{items.count(k)}", PRODUCTS[k]['price'] * items.count(k) * 100) for k in set(items)]
     
-    discount = user_tapped_discounts.get(chat_id, 0)
+    discount = db_manage_user(chat_id)
     if discount > 0:
         if discount >= total_price: 
             discount = total_price - 1
@@ -388,9 +399,9 @@ def success(message):
         except Exception as e:
             pass
 
+    # Очищуємо кошик і знижку після успішної покупки
     db_clear_cart(message.chat.id)
-    if message.chat.id in user_tapped_discounts:
-        user_tapped_discounts[message.chat.id] = 0
+    db_manage_user(message.chat.id, 0)
 
 # --- АДМІН ПАНЕЛЬ ---
 @bot.message_handler(commands=['admin'])
@@ -425,52 +436,68 @@ def process_broadcast(message):
 def news_section(message):
     bot.send_message(message.chat.id, "🌿 Всі наші продукти легальні згідно з Постановою КМУ №324.")
 
+# Кнопка "Показати ще"
+@bot.callback_query_handler(func=lambda call: call.data == "ai_more")
+def ai_more_options(call):
+    bot.answer_callback_query(call.id)
+    bot.send_chat_action(call.message.chat.id, 'typing')
+    handle_ai_conversation(call.message, "Запропонуй ще якісь цікаві варіанти.")
+
 @bot.message_handler(func=lambda m: True)
 def ai_consultant(message):
-    # Ігноруємо команди меню
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD"]: return
+    bot.send_chat_action(message.chat.id, 'typing')
+    handle_ai_conversation(message, message.text)
+
+def handle_ai_conversation(message, text_input):
+    chat_id = message.chat.id
     
-    # Формуємо рядок з товарами (Код: Назва - Ціна) для ШІ
+    # Дістаємо історію повідомлень з БД
+    history = db_manage_history(chat_id)
+    
+    # Зберігаємо нове повідомлення користувача
+    db_manage_history(chat_id, "user", text_input)
+    
     catalog_text = ", ".join([f"{key}: {p['name']} ({p['price']} грн)" for key, p in PRODUCTS.items()])
     
-    # ОНОВЛЕНИЙ ПРОМПТ: Вчимо ШІ продавати дозовано
     system_prompt = (
         f"Ти привітний експерт магазину Pink Canna. Наш асортимент (Код: Назва - Ціна): {catalog_text}. "
-        f"Допомагай підбирати товари та продавай. Всі товари легальні (Постанова КМУ №324).\n\n"
-        f"ТВОЇ ПРАВИЛА ПРОДАЖІВ:\n"
-        f"1. НІКОЛИ не пропонуй більше 1-2 товарів за одне повідомлення, щоб не лякати клієнта вибором.\n"
-        f"2. Завжди запитуй в кінці, чи показати інші варіанти (наприклад: 'Чи хочете подивитися щось сильніше?', 'Можливо, вам цікавий інший формат?').\n"
-        f"3. ВАЖЛИВО: Щоб бот показав картку товару, ти МАЄШ написати 'Код' рекомендованого товару в квадратних дужках десь у тексті (наприклад: 'Раджу спробувати [strong] або [cbd_20_10]').\n"
-        f"Відповідай максимально природно, ніби спілкуєшся з другом у чаті."
+        f"Допомагай підбирати товари. Всі товари легальні (Постанова КМУ №324).\n"
+        f"ПРАВИЛА:\n"
+        f"1. Пропонуй максимум 1-2 товари за повідомлення.\n"
+        f"2. Запитуй, чи показати інші варіанти.\n"
+        f"3. ОБОВ'ЯЗКОВО вкажи 'Код' рекомендованого товару в квадратних дужках десь у тексті (напр: [strong] або [cbd_20_10]).\n"
+        f"4. Веди себе природно, враховуй попередні повідомлення (ти їх пам'ятаєш)."
     )
+    
+    # Додаємо системний промпт, потім історію, потім нове повідомлення
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": text_input}]
     
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt}, 
-                {"role": "user", "content": message.text}
-            ]
+            messages=messages
         )
         
         ai_text = response.choices[0].message.content
         
-        # Витягуємо всі коди товарів у дужках
-        product_keys = re.findall(r'\[([a-zA-Z0-9_]+)\]', ai_text)
+        # Зберігаємо відповідь ШІ у базу
+        db_manage_history(chat_id, "assistant", ai_text)
         
-        # Очищаємо текст від дужок перед відправкою клієнту
+        product_keys = re.findall(r'\[([a-zA-Z0-9_]+)\]', ai_text)
         clean_text = re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip()
         
         if clean_text:
-            bot.send_message(message.chat.id, clean_text)
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🔄 Показати ще варіанти", callback_data="ai_more"))
+            bot.send_message(chat_id, clean_text, reply_markup=markup)
             
-        # Для кожного знайденого коду відправляємо картку товару! (Але їх тепер буде максимум 1-2)
         for key in product_keys:
             if key in PRODUCTS:
-                send_product_card(message.chat.id, key)
+                send_product_card(chat_id, key)
                 
     except Exception as e: 
-        bot.send_message(message.chat.id, "⚠️ Консультант тимчасово недоступний.")
+        bot.send_message(chat_id, "⚠️ Консультант тимчасово недоступний. Спробуйте пізніше.")
 
 if __name__ == "__main__":
     bot.infinity_polling()

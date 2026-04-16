@@ -20,7 +20,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def init_db():
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
-        # Новий кошик з таймером бронювання
+        # Кошик з таймером бронювання
         c.execute('''CREATE TABLE IF NOT EXISTS carts_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, product_key TEXT, expires_at DATETIME)''')
         c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, discount INTEGER DEFAULT 0)''')
         c.execute('''CREATE TABLE IF NOT EXISTS ai_history (user_id INTEGER, role TEXT, content TEXT)''')
@@ -157,7 +157,7 @@ DOSAGE_DATA = {
 }
 CONC_DATA = {5: {"10ml": 35, "30ml": 50}, 10: {"10ml": 70, "30ml": 100}, 15: {"10ml": 105, "30ml": 150}, 20: {"10ml": 140, "30ml": 200}, 30: {"10ml": 210, "30ml": 300}}
 
-# Ініціалізація БД при старті коду
+# Ініціалізація БД
 init_db()
 
 # --- ВІДПРАВКА КАРТКИ ТОВАРУ ---

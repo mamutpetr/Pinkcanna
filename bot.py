@@ -4,6 +4,7 @@ import os
 import sqlite3
 import re
 import qrcode
+import requests
 from io import BytesIO
 from datetime import datetime, timedelta
 from openai import OpenAI
@@ -15,22 +16,70 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ADMIN_ID = os.getenv("ADMIN_ID") 
 WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/"
 
+# --- POSTER API ---
+POSTER_TOKEN = "377815:66803259adcbc9e089303515afbb73e7"
+POSTER_API_URL = "https://joinposter.com/api"
+
 bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- БАЗА ДАНИХ (Кошик, Знижки, Пам'ять, Склад, Лояльність) ---
+# --- РОБОТА З POSTER API ---
+def get_poster_client(phone_number):
+    # Видаляємо зайві символи з номера для Poster
+    clean_phone = re.sub(r'\D', '', phone_number)
+    url = f"{POSTER_API_URL}/clients.getClients"
+    params = {"token": POSTER_TOKEN, "phone": clean_phone}
+    try:
+        res = requests.get(url, params=params).json()
+        if res.get("response"):
+            return res["response"][0]
+    except Exception as e:
+        print(f"Помилка Poster API (get): {e}")
+    return None
+
+def create_poster_client(phone_number, name):
+    clean_phone = re.sub(r'\D', '', phone_number)
+    url = f"{POSTER_API_URL}/clients.setClient"
+    payload = {
+        "client_name": name or "Клієнт Telegram",
+        "phone": clean_phone,
+        "bonus": 0
+    }
+    try:
+        res = requests.post(f"{url}?token={POSTER_TOKEN}", json=payload).json()
+        return res.get("response")
+    except Exception as e:
+        print(f"Помилка Poster API (create): {e}")
+    return None
+
+def update_poster_bonus(client_id, current_bonus, add_amount):
+    url = f"{POSTER_API_URL}/clients.setClient"
+    payload = {
+        "client_id": client_id,
+        "bonus": float(current_bonus) + float(add_amount)
+    }
+    try:
+        requests.post(f"{url}?token={POSTER_TOKEN}", json=payload)
+    except Exception as e:
+        print(f"Помилка Poster API (update bonus): {e}")
+
+# --- БАЗА ДАНИХ ---
 def init_db():
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS carts_v2 
                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, product_key TEXT, expires_at DATETIME)''')
         c.execute('''CREATE TABLE IF NOT EXISTS users 
-                     (user_id INTEGER PRIMARY KEY, discount INTEGER DEFAULT 0, balance REAL DEFAULT 0, referred_by INTEGER)''')
+                     (user_id INTEGER PRIMARY KEY, phone TEXT, discount INTEGER DEFAULT 0, balance REAL DEFAULT 0, referred_by INTEGER)''')
         c.execute('''CREATE TABLE IF NOT EXISTS ai_history 
                      (user_id INTEGER, role TEXT, content TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS inventory 
                      (product_key TEXT PRIMARY KEY, total_qty INTEGER DEFAULT 0)''')
         
+        # Додаємо колонку phone, якщо її не було в старій базі
+        try: c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        except: pass
+
         for key in PRODUCTS.keys():
             c.execute("INSERT OR IGNORE INTO inventory (product_key, total_qty) VALUES (?, 20)", (key,))
         conn.commit()
@@ -96,25 +145,21 @@ def db_confirm_purchase(user_id):
         for key in items:
             c.execute("UPDATE inventory SET total_qty = total_qty - 1 WHERE product_key = ?", (key,))
         c.execute("DELETE FROM carts_v2 WHERE user_id = ?", (user_id,))
-        c.execute("UPDATE users SET discount = 0, balance = 0 WHERE user_id = ?", (user_id,))
+        c.execute("UPDATE users SET discount = 0 WHERE user_id = ?", (user_id,))
         conn.commit()
     return items
 
-def db_manage_user(user_id, discount=None):
+def db_manage_user(user_id, discount=None, phone=None):
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO users (user_id, balance) VALUES (?, 0)", (user_id,))
+        c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
         if discount is not None:
             c.execute("UPDATE users SET discount = ? WHERE user_id = ?", (discount, user_id))
+        if phone is not None:
+            c.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
         conn.commit()
-        c.execute("SELECT discount, balance FROM users WHERE user_id = ?", (user_id,))
+        c.execute("SELECT phone, discount, referred_by FROM users WHERE user_id = ?", (user_id,))
         return c.fetchone()
-
-def db_add_referral_bonus(referrer_id):
-    with sqlite3.connect("pinkcanna.db") as conn:
-        c = conn.cursor()
-        c.execute("UPDATE users SET balance = balance + 50 WHERE user_id = ?", (referrer_id,))
-        conn.commit()
 
 def db_manage_history(user_id, role=None, content=None):
     with sqlite3.connect("pinkcanna.db") as conn:
@@ -177,6 +222,7 @@ def send_product_card(chat_id, key):
     else:
         stock_text = "🔴 Немає в наявності"
         markup.add(types.InlineKeyboardButton("🔍 Дізнатись більше", callback_data=f"info_{key}"))
+
     caption = f"🏷 **{item['name']}**\n\n📝 {item['short']}\n📦 {stock_text}\n💰 **Ціна: {item['price']} грн**"
     try:
         if os.path.exists(item['image']):
@@ -185,10 +231,9 @@ def send_product_card(chat_id, key):
     except: bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="Markdown")
 
 # --- ДОДАТКОВІ ФУНКЦІЇ (QR) ---
-def generate_customer_qr(user_id):
-    qr_data = f"https://t.me/{bot.get_me().username}?start=scan_{user_id}"
+def generate_customer_qr(phone_number):
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(qr_data)
+    qr.add_data(phone_number) # Для сканера касира Poster - лише номер телефону
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
     bio = BytesIO()
@@ -205,67 +250,109 @@ def main_menu():
     m.row("📞 Консультант", "📰 Новини")
     return m
 
+def contact_menu():
+    m = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    m.add(types.KeyboardButton("📱 Надіслати свій номер телефону", request_contact=True))
+    m.add("⬅️ Назад до меню")
+    return m
+
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.chat.id
-    db_manage_user(user_id)
+    user_data = db_manage_user(user_id)
+    
     args = message.text.split()
-    if len(args) > 1:
-        # Рефералка
-        if args[1].isdigit():
-            referrer_id = int(args[1])
-            if referrer_id != user_id:
-                with sqlite3.connect("pinkcanna.db") as conn:
-                    c = conn.cursor()
-                    c.execute("SELECT referred_by FROM users WHERE user_id = ?", (user_id,))
-                    res = c.fetchone()
-                    if res and res[0] is None:
-                        c.execute("UPDATE users SET referred_by = ? WHERE user_id = ?", (referrer_id, user_id))
-                        conn.commit()
-                        db_add_referral_bonus(referrer_id)
-                        bot.send_message(referrer_id, "🎁 Твій друг приєднався! Тобі нараховано **50 грн** бонусу!")
-        # Скан для адміна
-        elif args[1].startswith("scan_"):
-            if str(user_id) != str(ADMIN_ID):
-                bot.send_message(user_id, "❌ Доступ лише для персоналу магазину.")
-                return
-            scanned_id = args[1].split("_")[1]
-            discount, balance = db_manage_user(scanned_id)
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton(f"✅ Списати {int(balance)} грн", callback_data=f"off_pay_{scanned_id}"))
-            bot.send_message(ADMIN_ID, f"👤 **Карта клієнта розпізнана!**\nID: `{scanned_id}`\n💰 Бонуси: **{int(balance)} грн**\n\nСписати при покупці?", 
-                             reply_markup=markup, parse_mode="Markdown")
+    if len(args) > 1 and args[1].isdigit():
+        referrer_id = int(args[1])
+        # Якщо клієнт перейшов по посиланню друга і ще не був запрошений
+        if referrer_id != user_id and user_data[2] is None: 
+            with sqlite3.connect("pinkcanna.db") as conn:
+                c = conn.cursor()
+                c.execute("UPDATE users SET referred_by = ? WHERE user_id = ?", (referrer_id, user_id))
+                conn.commit()
+            
+            # Нараховуємо бонус рефералу через Poster
+            referrer_data = db_manage_user(referrer_id)
+            if referrer_data and referrer_data[0]: # якщо в друга вказаний телефон
+                client_poster = get_poster_client(referrer_data[0])
+                if client_poster:
+                    update_poster_bonus(client_poster['client_id'], client_poster['bonus'], 50)
+                    bot.send_message(referrer_id, "🎁 Твій друг приєднався! +50 грн нараховано в Poster!")
+
     bot.send_message(user_id, "🌿 Вітаємо у Pink Canna! Оберіть пункт меню:", reply_markup=main_menu())
 
-# --- ПРОФІЛЬ ТА КАРТА ---
+@bot.message_handler(func=lambda m: m.text == "⬅️ Назад до меню")
+def back_to_menu(message):
+    bot.send_message(message.chat.id, "Ви в головному меню:", reply_markup=main_menu())
+
+# --- ПРОФІЛЬ ТА ІНТЕГРАЦІЯ POSTER ---
+@bot.message_handler(commands=['me', 'profile'])
 @bot.message_handler(func=lambda m: m.text == "👤 Профіль")
 def profile_cmd(message):
     user_id = message.chat.id
-    discount, balance = db_manage_user(user_id)
+    user_data = db_manage_user(user_id)
+    phone = user_data[0] # телефон у базі
+    
+    if not phone:
+        bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nЩоб отримувати кешбек та знижки, поділіться своїм номером телефону. Це створить вашу бонусну картку в Poster.", reply_markup=contact_menu(), parse_mode="Markdown")
+        return
+        
+    display_profile(message, phone, user_data[1])
+
+@bot.message_handler(content_types=['contact'])
+def handle_contact(message):
+    user_id = message.chat.id
+    phone = message.contact.phone_number
+    if not phone.startswith('+'): phone = '+' + phone
+    
+    # Зберігаємо телефон локально
+    user_data = db_manage_user(user_id, phone=phone)
+    
+    # Створюємо в Poster
+    bot.send_message(user_id, "⏳ Реєстрація у бонусній системі...", reply_markup=types.ReplyKeyboardRemove())
+    client_poster = get_poster_client(phone)
+    if not client_poster:
+        create_poster_client(phone, message.from_user.first_name)
+        
+    bot.send_message(user_id, "✅ Номер успішно підключено!", reply_markup=main_menu())
+    display_profile(message, phone, user_data[1])
+
+def display_profile(message, phone, game_discount):
+    user_id = message.chat.id
     bot_name = bot.get_me().username
     ref_link = f"https://t.me/{bot_name}?start={user_id}"
+    
+    # Отримуємо свіжий баланс напряму з Poster
+    client_poster = get_poster_client(phone)
+    poster_bonus = float(client_poster['bonus']) if client_poster else 0.0
+    
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🪪 Моя карта (QR)", callback_data="show_qr"))
-    text = (f"👤 **Твій кабінет Pink Canna**\n\n💰 Бонусний рахунок: **{int(balance)} грн**\n🍀 Знижка з тапалки: **{discount} грн**\n\n🔗 **Реферальне посилання:**")
+    markup.add(types.InlineKeyboardButton("🪪 Моя карта (QR для касира)", callback_data="show_qr"))
+
+    text = (f"👤 **Твій кабінет Pink Canna**\n\n"
+            f"📱 Телефон: `{phone}`\n"
+            f"💰 Бонуси Poster: **{int(poster_bonus)} грн**\n"
+            f"🍀 Знижка з тапалки: **{game_discount} грн**\n\n"
+            f"🔗 **Реферальна програма:**\n"
+            f"Запрошуй друзів та отримуй **50 грн** на рахунок!\n")
+    
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
     bot.send_message(user_id, f"`{ref_link}`", parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_qr")
 def show_qr_callback(call):
     user_id = call.message.chat.id
-    _, balance = db_manage_user(user_id)
-    qr = generate_customer_qr(user_id)
-    caption = f"🪪 **Твоя цифрова карта**\n💰 Баланс: **{int(balance)} грн**\n\nПокажи цей код продавцю для списання бонусів."
-    bot.send_photo(user_id, qr, caption=caption, parse_mode="Markdown")
+    user_data = db_manage_user(user_id)
+    phone = user_data[0]
+    
+    if not phone: return bot.answer_callback_query(call.id, "Спочатку надайте номер телефону!", show_alert=True)
+    
+    client_poster = get_poster_client(phone)
+    poster_bonus = float(client_poster['bonus']) if client_poster else 0.0
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("off_pay_"))
-def off_pay_confirm(call):
-    if str(call.message.chat.id) != str(ADMIN_ID): return
-    client_id = call.data.split("_")[2]
-    with sqlite3.connect("pinkcanna.db") as conn:
-        conn.cursor().execute("UPDATE users SET balance = 0 WHERE user_id = ?", (client_id,))
-    bot.edit_message_text(f"✅ Бонуси клієнта {client_id} успішно використані в офлайні.", call.message.chat.id, call.message.message_id)
-    bot.send_message(client_id, "🎁 Ваші бонуси були успішно списані в магазині. Дякуємо за візит!")
+    qr = generate_customer_qr(phone) # Генеруємо QR з номером
+    caption = f"🪪 **Цифрова карта Poster**\n💰 Баланс: **{int(poster_bonus)} грн**\n\nПокажіть цей код касиру."
+    bot.send_photo(user_id, qr, caption=caption, parse_mode="Markdown")
 
 # --- КАЛЬКУЛЯТОР ДОЗИ ---
 @bot.message_handler(func=lambda m: m.text == "🧮 Підбір дози CBD")
@@ -333,12 +420,24 @@ def item_actions(call):
     action, key = call.data.split("_", 1)
     if action == "buy":
         if db_add_to_cart_with_reserve(call.message.chat.id, key):
-            bot.answer_callback_query(call.id, f"✅ {PRODUCTS[key]['name']} заброньовано!")
+            bot.answer_callback_query(call.id, f"✅ {PRODUCTS[key]['name']} заброньовано на 15 хв!")
         else:
             bot.answer_callback_query(call.id, "❌ Недостатньо товару!", show_alert=True)
     elif action == "info":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, PRODUCTS[key]['info'], parse_mode="Markdown")
+        send_product_card(call.message.chat.id, key)
+
+# --- ТАПАЛКА ---
+@bot.message_handler(content_types=['web_app_data'])
+def get_discount(message):
+    try:
+        match = re.search(r'\d+', message.web_app_data.data)
+        if match:
+            disc = int(match.group())
+            db_manage_user(message.chat.id, discount=disc)
+            bot.send_message(message.chat.id, f"🍀 Супер! Знижка **{disc} грн** збережена.", parse_mode="Markdown")
+    except: pass
 
 # --- КОШИК ---
 @bot.message_handler(func=lambda m: m.text == "🛒 Кошик")
@@ -351,20 +450,39 @@ def render_cart(chat_id, message_id=None):
         if message_id: bot.edit_message_text(text, chat_id, message_id)
         else: bot.send_message(chat_id, text)
         return
+        
     items = [row[0] for row in raw_items]
     total = sum(PRODUCTS[k]['price'] for k in items)
-    discount, balance = db_manage_user(chat_id)
-    total_benefit = discount + balance
+    
+    # Витягуємо баланси
+    user_data = db_manage_user(chat_id)
+    phone = user_data[0]
+    discount = user_data[1]
+    
+    poster_bonus = 0.0
+    if phone:
+        client_poster = get_poster_client(phone)
+        if client_poster: poster_bonus = float(client_poster['bonus'])
+
+    total_benefit = discount + poster_bonus
+    
+    min_expiry_str = min([row[1] for row in raw_items])
+    mins_left = max(1, int((datetime.strptime(min_expiry_str, "%Y-%m-%d %H:%M:%S") - datetime.now()).total_seconds() / 60))
+
     markup = types.InlineKeyboardMarkup(row_width=3)
     item_counts = {k: items.count(k) for k in set(items)}
     summary = ""
     for k, count in item_counts.items():
         summary += f"• {PRODUCTS[k]['name']} x{count} = {PRODUCTS[k]['price'] * count} грн\n"
         markup.row(types.InlineKeyboardButton("➖", callback_data=f"crem_{k}"), types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"), types.InlineKeyboardButton("➕", callback_data=f"cadd_{k}"))
+        
     markup.row(types.InlineKeyboardButton("💳 Оформити замовлення", callback_data="checkout"))
     markup.row(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))
+    
     final_total = total - total_benefit if total_benefit < total else 1
-    text = f"**Ваш кошик:**\n\n{summary}\n💰 **До сплати: {final_total} грн**"
+    text = f"**Ваш кошик:**\n\n{summary}\n"
+    if total_benefit > 0: text += f"🎁 Бонуси Poster та знижки: -{int(total_benefit)} грн\n"
+    text += f"💰 **До сплати: {int(final_total)} грн**\n\n⏳ *Бронь ще на {mins_left} хв!*"
     if message_id: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
@@ -377,26 +495,60 @@ def mod_cart(call):
     elif call.data.startswith("crem_"): db_remove_one_from_cart(call.message.chat.id, key)
     bot.answer_callback_query(call.id); render_cart(call.message.chat.id, call.message.message_id)
 
+@bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
+def clr_cart(call):
+    bot.answer_callback_query(call.id); db_clear_cart(call.message.chat.id)
+    bot.edit_message_text("🗑 Кошик очищено.", call.message.chat.id, call.message.message_id)
+
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def pay(call):
-    chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id); chat_id = call.message.chat.id
     items = [row[0] for row in db_get_cart_with_expiry(chat_id)]
     if not items: return
     total_price = sum(PRODUCTS[k]['price'] for k in items)
     prices = [types.LabeledPrice(f"{PRODUCTS[k]['name']} x{items.count(k)}", PRODUCTS[k]['price'] * items.count(k) * 100) for k in set(items)]
-    discount, balance = db_manage_user(chat_id)
-    benefit = discount + balance
-    if benefit > 0:
-        prices.append(types.LabeledPrice("🎁 Бонуси", -int((total_price - 1 if benefit >= total_price else benefit) * 100)))
-    bot.send_invoice(chat_id, "Pink Canna", "Оплата", "payload", PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=True)
+    
+    user_data = db_manage_user(chat_id)
+    phone = user_data[0]
+    discount = user_data[1]
+    
+    poster_bonus = 0.0
+    if phone:
+        client_poster = get_poster_client(phone)
+        if client_poster: poster_bonus = float(client_poster['bonus'])
+
+    total_benefit = discount + poster_bonus
+    used_poster_bonus = min(poster_bonus, total_price - discount - 1) if poster_bonus > 0 else 0
+
+    if total_benefit > 0:
+        prices.append(types.LabeledPrice("🎁 Бонуси", -int((total_price - 1 if total_benefit >= total_price else total_benefit) * 100)))
+    
+    # Передаємо використані бонуси Poster в payload
+    payload = f"pay_{used_poster_bonus}"
+    bot.send_invoice(chat_id, "Pink Canna", "Оплата", payload, PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=True)
 
 @bot.pre_checkout_query_handler(func=lambda q: True)
 def pre_checkout(q): bot.answer_pre_checkout_query(q.id, ok=True)
 
 @bot.message_handler(content_types=['successful_payment'])
 def success(message):
-    bot.send_message(message.chat.id, "✅ Дякуємо за оплату!")
-    db_confirm_purchase(message.chat.id)
+    bot.send_message(message.chat.id, "✅ Дякуємо за оплату! Замовлення в обробці.")
+    purchased_items = db_confirm_purchase(message.chat.id)
+    
+    # Віднімаємо бонуси з Poster API
+    used_bonus = float(message.successful_payment.invoice_payload.replace("pay_", ""))
+    if used_bonus > 0:
+        user_data = db_manage_user(message.chat.id)
+        if user_data[0]:
+            client_poster = get_poster_client(user_data[0])
+            if client_poster:
+                update_poster_bonus(client_poster['client_id'], client_poster['bonus'], -used_bonus)
+
+    if ADMIN_ID:
+        try:
+            summary = ", ".join([f"{PRODUCTS[k]['name']} (x{purchased_items.count(k)})" for k in set(purchased_items)])
+            bot.send_message(ADMIN_ID, f"🚨 **ЗАМОВЛЕННЯ ОПЛАЧЕНО!**\n👤 Клієнт: @{message.from_user.username}\n📦 Товари: {summary}\n💰 Сума: {message.successful_payment.total_amount / 100} UAH")
+        except: pass
 
 # --- АДМІНКА ---
 @bot.message_handler(commands=['admin'])
@@ -408,9 +560,10 @@ def admin_panel(message):
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_stock")
 def admin_stock_cats(call):
+    bot.answer_callback_query(call.id)
     m = types.InlineKeyboardMarkup(row_width=1)
     for cat_id, cat_name in CATEGORIES.items(): m.add(types.InlineKeyboardButton(cat_name, callback_data=f"astockcat_{cat_id}"))
-    bot.edit_message_text("📦 Категорія складу:", call.message.chat.id, call.message.message_id, reply_markup=m)
+    bot.edit_message_text("📦 Категорія для складу:", call.message.chat.id, call.message.message_id, reply_markup=m)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("astockcat_"))
 def admin_stock_items(call):
@@ -418,30 +571,63 @@ def admin_stock_items(call):
     m = types.InlineKeyboardMarkup(row_width=1)
     for key, item in PRODUCTS.items():
         if item["category"] == cat_id: m.add(types.InlineKeyboardButton(f"{item['name']} ({db_get_stock(key)} шт)", callback_data=f"astockedit_{key}"))
-    bot.edit_message_text("📦 Оберіть товар:", call.message.chat.id, call.message.message_id, reply_markup=m)
+    m.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_stock"))
+    bot.edit_message_text("📦 Тисніть для зміни кількості:", call.message.chat.id, call.message.message_id, reply_markup=m)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("astockedit_"))
 def admin_stock_edit(call):
     key = call.data.split("_")[1]
-    msg = bot.send_message(call.message.chat.id, f"Введіть кількість для **{PRODUCTS[key]['name']}**:")
+    msg = bot.send_message(call.message.chat.id, f"Введіть нову кількість для **{PRODUCTS[key]['name']}**:")
     bot.register_next_step_handler(msg, process_stock_update, key)
 
 def process_stock_update(message, key):
     try:
         qty = int(message.text); db_set_stock(key, qty)
         bot.send_message(message.chat.id, f"✅ Оновлено: {qty} шт.")
-    except: bot.send_message(message.chat.id, "⚠️ Помилка.")
+    except: bot.send_message(message.chat.id, "⚠️ Тільки цифри!")
 
-# --- AI КОНСУЛЬТАНТ ---
+@bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
+def admin_broadcast_req(call):
+    if str(call.message.chat.id) != str(ADMIN_ID): return
+    msg = bot.send_message(call.message.chat.id, "Текст для розсилки:")
+    bot.register_next_step_handler(msg, process_broadcast)
+
+def process_broadcast(message):
+    with sqlite3.connect("pinkcanna.db") as conn:
+        users = conn.cursor().execute("SELECT user_id FROM users").fetchall()
+    count = 0
+    for u in users:
+        try: bot.send_message(u[0], f"📢 **Новина Pink Canna:**\n\n{message.text}", parse_mode="Markdown"); count += 1
+        except: pass
+    bot.send_message(ADMIN_ID, f"✅ Отримали: {count} юзерів.")
+
+# --- AI ---
+@bot.callback_query_handler(func=lambda call: call.data == "ai_more")
+def ai_more_options(call):
+    bot.answer_callback_query(call.id); handle_ai_conversation(call.message, "Ще варіанти?")
+
 @bot.message_handler(func=lambda m: True)
 def ai_consultant(message):
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD", "👤 Профіль"]: return
-    if message.text == "📰 Новини": return bot.send_message(message.chat.id, "🌿 СБД легальний (Постанова №324).")
+    if message.text == "📰 Новини": return bot.send_message(message.chat.id, "🌿 СБД легальний згідно з Постановою КМУ №324.")
+    bot.send_chat_action(message.chat.id, 'typing'); handle_ai_conversation(message, message.text)
+
+def handle_ai_conversation(message, text_input):
+    chat_id = message.chat.id
+    history = db_manage_history(chat_id)
+    db_manage_history(chat_id, "user", text_input)
+    avail = [f"{k}: {p['name']} ({p['price']}грн)" for k, p in PRODUCTS.items() if db_get_stock(k) > 0]
+    system_prompt = f"Ти Pink Canna AI. В наявності: {', '.join(avail)}. Вказуй 'Код' в [код]."
     try:
-        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": message.text}])
-        bot.send_message(message.chat.id, response.choices[0].message.content)
-    except: pass
+        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": text_input}])
+        ai_text = response.choices[0].message.content
+        db_manage_history(chat_id, "assistant", ai_text)
+        keys = re.findall(r'\[([a-zA-Z0-9_]+)\]', ai_text)
+        bot.send_message(chat_id, re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip(), reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔄 Ще", callback_data="ai_more")))
+        for k in keys:
+            if k in PRODUCTS and db_get_stock(k) > 0: send_product_card(chat_id, k)
+    except: bot.send_message(chat_id, "⚠️ AI офлайн.")
 
 if __name__ == "__main__":
+    init_db()
     bot.infinity_polling()
-

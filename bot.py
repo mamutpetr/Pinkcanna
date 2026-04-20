@@ -22,7 +22,6 @@ def init_db():
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS carts_v2 
                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, product_key TEXT, expires_at DATETIME)''')
-        # Додано колонки balance та referred_by
         c.execute('''CREATE TABLE IF NOT EXISTS users 
                      (user_id INTEGER PRIMARY KEY, discount INTEGER DEFAULT 0, balance REAL DEFAULT 0, referred_by INTEGER)''')
         c.execute('''CREATE TABLE IF NOT EXISTS ai_history 
@@ -95,8 +94,6 @@ def db_confirm_purchase(user_id):
         for key in items:
             c.execute("UPDATE inventory SET total_qty = total_qty - 1 WHERE product_key = ?", (key,))
         c.execute("DELETE FROM carts_v2 WHERE user_id = ?", (user_id,))
-        # Списання використаних бонусів при покупці (якщо вони були застосовані)
-        # У цій версії знижка від тапалки та баланс рефералів підсумовуються
         c.execute("UPDATE users SET discount = 0, balance = 0 WHERE user_id = ?", (user_id,))
         conn.commit()
     return items
@@ -164,7 +161,7 @@ CONC_DATA = {5: {"10ml": 35, "30ml": 50}, 10: {"10ml": 70, "30ml": 100}, 15: {"1
 
 init_db()
 
-# --- ФУНКЦІЇ ВІДПРАВКИ ---
+# --- ВІДПРАВКА КАРТКИ ТОВАРУ ---
 def send_product_card(chat_id, key):
     item = PRODUCTS[key]
     stock = db_get_stock(key)
@@ -200,7 +197,6 @@ def start(message):
     user_id = message.chat.id
     db_manage_user(user_id)
     
-    # Перевірка реферального посилання
     args = message.text.split()
     if len(args) > 1 and args[1].isdigit():
         referrer_id = int(args[1])
@@ -208,8 +204,8 @@ def start(message):
             with sqlite3.connect("pinkcanna.db") as conn:
                 c = conn.cursor()
                 c.execute("SELECT referred_by FROM users WHERE user_id = ?", (user_id,))
-                already_referred = c.fetchone()[0]
-                if already_referred is None:
+                res = c.fetchone()
+                if res and res[0] is None:
                     c.execute("UPDATE users SET referred_by = ? WHERE user_id = ?", (referrer_id, user_id))
                     conn.commit()
                     db_add_referral_bonus(referrer_id)
@@ -218,6 +214,7 @@ def start(message):
     bot.send_message(user_id, "🌿 Вітаємо у Pink Canna! Оберіть пункт меню:", reply_markup=main_menu())
 
 # --- ПРОФІЛЬ ТА ЛОЯЛЬНІСТЬ ---
+@bot.message_handler(commands=['me', 'profile'])
 @bot.message_handler(func=lambda m: m.text == "👤 Профіль")
 def profile_cmd(message):
     user_id = message.chat.id
@@ -229,11 +226,13 @@ def profile_cmd(message):
             f"💰 Накопичений бонус: **{balance} грн**\n"
             f"🍀 Знижка з тапалки: **{discount} грн**\n\n"
             f"🔗 **Реферальна програма:**\n"
-            f"Запрошуй друзів та отримуй **50 грн** на рахунок за кожного!\n"
-            f"Твоє посилання:\n`{ref_link}`")
+            f"Запрошуй друзів та отримуй **50 грн** на рахунок за кожного!")
+    
     bot.send_message(user_id, text, parse_mode="Markdown")
+    # Посилання окремим повідомленням для копіювання в один тап
+    bot.send_message(user_id, f"`{ref_link}`", parse_mode="Markdown")
 
-# --- КАЛЬКУЛЯТОР (Крокові хендлери збережено) ---
+# --- КАЛЬКУЛЯТОР ДОЗИ ---
 @bot.message_handler(func=lambda m: m.text == "🧮 Підбір дози CBD")
 def calc_start(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -395,7 +394,7 @@ def success(message):
             bot.send_message(ADMIN_ID, f"🚨 **ЗАМОВЛЕННЯ ОПЛАЧЕНО!**\n👤 Клієнт: @{message.from_user.username}\n📦 Товари: {summary}\n💰 Сума: {message.successful_payment.total_amount / 100} UAH")
         except: pass
 
-# --- АДМІНКА ТА РОЗСИЛКА ---
+# --- АДМІНКА ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if str(message.chat.id) != str(ADMIN_ID): return
@@ -446,7 +445,7 @@ def process_broadcast(message):
         except: pass
     bot.send_message(ADMIN_ID, f"✅ Отримали: {count} юзерів.")
 
-# --- AI-КОНСУЛЬТАНТ ---
+# --- AI ---
 @bot.callback_query_handler(func=lambda call: call.data == "ai_more")
 def ai_more_options(call):
     bot.answer_callback_query(call.id); handle_ai_conversation(call.message, "Ще варіанти?")
@@ -471,7 +470,7 @@ def handle_ai_conversation(message, text_input):
         bot.send_message(chat_id, re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip(), reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔄 Ще", callback_data="ai_more")))
         for k in keys:
             if k in PRODUCTS and db_get_stock(k) > 0: send_product_card(chat_id, k)
-    except: bot.send_message(chat_id, "⚠️ AI тимчасово офлайн.")
+    except: bot.send_message(chat_id, "⚠️ AI офлайн.")
 
 if __name__ == "__main__":
     bot.infinity_polling()

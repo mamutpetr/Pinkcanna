@@ -28,15 +28,16 @@ def get_poster_client(phone_number):
     if not POSTER_TOKEN: return None
     url = f"{POSTER_API_URL}/clients.getClients"
     
-    # Шукаємо і з плюсом, і без плюса
-    for phone_variant in [phone_number, phone_number.replace('+', '')]:
-        params = {"token": POSTER_TOKEN, "phone": phone_variant}
-        try:
-            res = requests.get(url, params=params).json()
-            if res.get("response"):
-                return res["response"][0]
-        except Exception as e:
-            pass
+    # Poster використовує параметр 'search' для пошуку за номером
+    clean_phone = phone_number.replace('+', '')
+    params = {"token": POSTER_TOKEN, "search": clean_phone}
+    
+    try:
+        res = requests.get(url, params=params).json()
+        if res.get("response") and len(res["response"]) > 0:
+            return res["response"][0]
+    except Exception as e:
+        print(f"Помилка Poster API (get): {e}")
     return None
 
 def create_poster_client(phone_number, name, chat_id):
@@ -49,12 +50,9 @@ def create_poster_client(phone_number, name, chat_id):
         groups_res = requests.get(f"{POSTER_API_URL}/clients.getGroups", params={"token": POSTER_TOKEN}).json()
         if groups_res.get("response"):
             group_id = groups_res["response"][0]["client_groups_id_client"]
-        else:
-            bot.send_message(chat_id, "⚠️ Увага: В Poster не знайдено жодної групи клієнтів.")
     except:
         pass
 
-    # ВИПРАВЛЕНО: Було setClient, стало createClient
     url = f"{POSTER_API_URL}/clients.createClient"
     payload = {
         "client_name": name or "Клієнт Telegram",
@@ -66,9 +64,15 @@ def create_poster_client(phone_number, name, chat_id):
 
     try:
         res = requests.post(f"{url}?token={POSTER_TOKEN}", json=payload).json()
+        
+        # Якщо клієнт вже є (Помилка 34) - просто дістаємо його з бази
+        if res.get("error") == 34:
+            return get_poster_client(phone_number)
+            
         if "error" in res:
             bot.send_message(chat_id, f"⚠️ Відповідь Poster (Помилка): {res['error']}")
             return None
+            
         return res.get("response")
     except Exception as e:
         bot.send_message(chat_id, f"⚠️ Помилка з'єднання з Poster: {e}")
@@ -76,7 +80,6 @@ def create_poster_client(phone_number, name, chat_id):
 
 def update_poster_bonus(client_id, current_bonus, add_amount):
     if not POSTER_TOKEN: return
-    # ВИПРАВЛЕНО: Було setClient, стало updateClient
     url = f"{POSTER_API_URL}/clients.updateClient"
     payload = {
         "client_id": client_id,
@@ -335,10 +338,11 @@ def handle_contact(message):
     
     bot.send_message(user_id, "⏳ Синхронізація з Poster...", reply_markup=types.ReplyKeyboardRemove())
     client_poster = get_poster_client(phone)
+    
     if not client_poster:
         res = create_poster_client(phone, message.from_user.first_name, user_id)
         if res:
-            bot.send_message(user_id, "✅ Ваш профіль успішно створено в базі Poster!")
+            bot.send_message(user_id, "✅ Ваш профіль успішно підключено!")
     else:
         bot.send_message(user_id, "✅ Ваш профіль знайдено в базі Poster!")
         

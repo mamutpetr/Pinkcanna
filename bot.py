@@ -28,7 +28,7 @@ def get_poster_client(phone_number):
     if not POSTER_TOKEN: return None
     url = f"{POSTER_API_URL}/clients.getClients"
     
-    # Шукаємо і з плюсом, і без плюса, щоб Poster точно знайшов клієнта
+    # Шукаємо і з плюсом, і без плюса
     for phone_variant in [phone_number, phone_number.replace('+', '')]:
         params = {"token": POSTER_TOKEN, "phone": phone_variant}
         try:
@@ -36,36 +36,39 @@ def get_poster_client(phone_number):
             if res.get("response"):
                 return res["response"][0]
         except Exception as e:
-            print(f"Помилка Poster API (get): {e}")
+            pass
     return None
 
-def create_poster_client(phone_number, name):
-    if not POSTER_TOKEN: return None
-    
-    # 1. Poster ВИМАГАЄ ID групи для створення клієнта. Отримуємо першу доступну групу.
-    group_id = 1
+def create_poster_client(phone_number, name, chat_id):
+    if not POSTER_TOKEN:
+        bot.send_message(chat_id, "❌ Помилка: POSTER_TOKEN не знайдено в системі!")
+        return None
+        
+    group_id = None
     try:
         groups_res = requests.get(f"{POSTER_API_URL}/clients.getGroups", params={"token": POSTER_TOKEN}).json()
         if groups_res.get("response"):
             group_id = groups_res["response"][0]["client_groups_id_client"]
-    except Exception as e:
-        print(f"Не вдалося отримати групи з Poster: {e}")
+    except:
+        pass
 
-    # 2. Створюємо самого клієнта
     url = f"{POSTER_API_URL}/clients.setClient"
     payload = {
         "client_name": name or "Клієнт Telegram",
         "phone": phone_number,
-        "client_groups_id_client": group_id, # Тепер Poster пропустить цей запит!
-        "bonus": 0
+        "client_sex": 0
     }
+    if group_id:
+        payload["client_groups_id_client"] = group_id
+
     try:
         res = requests.post(f"{url}?token={POSTER_TOKEN}", json=payload).json()
         if "error" in res:
-            print(f"ПОМИЛКА СТВОРЕННЯ В POSTER: {res['error']}")
+            bot.send_message(chat_id, f"⚠️ Відповідь Poster (Помилка): {res['error']}")
+            return None
         return res.get("response")
     except Exception as e:
-        print(f"Помилка Poster API (create): {e}")
+        bot.send_message(chat_id, f"⚠️ Помилка з'єднання з Poster: {e}")
     return None
 
 def update_poster_bonus(client_id, current_bonus, add_amount):
@@ -75,10 +78,7 @@ def update_poster_bonus(client_id, current_bonus, add_amount):
         "client_id": client_id,
         "bonus": float(current_bonus) + float(add_amount)
     }
-    try:
-        requests.post(f"{url}?token={POSTER_TOKEN}", json=payload)
-    except Exception as e:
-        print(f"Помилка Poster API (update bonus): {e}")
+    requests.post(f"{url}?token={POSTER_TOKEN}", json=payload)
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -311,7 +311,7 @@ def profile_cmd(message):
     if phone:
         client_poster = get_poster_client(phone)
         if not client_poster:
-            create_poster_client(phone, message.from_user.first_name)
+            create_poster_client(phone, message.from_user.first_name, user_id)
     
     if not phone:
         bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nЩоб отримувати кешбек та знижки, поділіться своїм номером телефону. Це створить вашу бонусну картку в Poster.", reply_markup=contact_menu(), parse_mode="Markdown")
@@ -325,14 +325,24 @@ def handle_contact(message):
     phone = message.contact.phone_number
     if not phone.startswith('+'): phone = '+' + phone
     
+    # Зберігаємо телефон локально
     user_data = db_manage_user(user_id, phone=phone)
     
     bot.send_message(user_id, "⏳ Синхронізація з Poster...", reply_markup=types.ReplyKeyboardRemove())
+    
+    # Перевіряємо в Poster
     client_poster = get_poster_client(phone)
     if not client_poster:
-        create_poster_client(phone, message.from_user.first_name)
+        # Намагаємось створити
+        created = create_poster_client(phone, message.from_user.first_name, user_id)
+        if created:
+            bot.send_message(user_id, "✅ Ваш профіль успішно створено в базі Poster!")
+        else:
+            bot.send_message(user_id, "❌ Не вдалося створити профіль в Poster (дивіться помилку вище).")
+    else:
+        bot.send_message(user_id, "✅ Ваш профіль знайдено в базі Poster!")
         
-    bot.send_message(user_id, "✅ Ваш профіль успішно підключено!", reply_markup=main_menu())
+    bot.send_message(user_id, "Оберіть пункт меню:", reply_markup=main_menu())
     display_profile(message, phone, user_data[1])
 
 def display_profile(message, phone, game_discount):
@@ -490,7 +500,7 @@ def render_cart(chat_id, message_id=None):
     summary = ""
     for k, count in item_counts.items():
         summary += f"• {PRODUCTS[k]['name']} x{count} = {PRODUCTS[k]['price'] * count} грн\n"
-        markup.row(types.InlineKeyboardButton("➖", callback_data=f"crem_{k}"), types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"), types.InlineKeyboardButton("➕", callback_data=f"cadd_{k}"))
+        markup.row(types.InlineKeyboardButton("➖", callback_data=f"crem_{k}"), types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"), types.KeyboardButton("➕", callback_data=f"cadd_{k}"))
         
     markup.row(types.InlineKeyboardButton("💳 Оформити замовлення", callback_data="checkout"))
     markup.row(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))

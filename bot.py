@@ -23,7 +23,7 @@ POSTER_API_URL = "https://joinposter.com/api"
 bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- РОБОТА З POSTER API (ОНОВЛЕНО) ---
+# --- РОБОТА З POSTER API ---
 def get_poster_client(phone_number):
     if not POSTER_TOKEN: return None
     url = f"{POSTER_API_URL}/clients.getClients"
@@ -49,14 +49,17 @@ def create_poster_client(phone_number, name, chat_id):
         groups_res = requests.get(f"{POSTER_API_URL}/clients.getGroups", params={"token": POSTER_TOKEN}).json()
         if groups_res.get("response"):
             group_id = groups_res["response"][0]["client_groups_id_client"]
+        else:
+            bot.send_message(chat_id, "⚠️ Увага: В Poster не знайдено жодної групи клієнтів.")
     except:
         pass
 
-    url = f"{POSTER_API_URL}/clients.setClient"
+    # ВИПРАВЛЕНО: Було setClient, стало createClient
+    url = f"{POSTER_API_URL}/clients.createClient"
     payload = {
         "client_name": name or "Клієнт Telegram",
         "phone": phone_number,
-        "client_sex": 0
+        "bonus": 0
     }
     if group_id:
         payload["client_groups_id_client"] = group_id
@@ -73,12 +76,16 @@ def create_poster_client(phone_number, name, chat_id):
 
 def update_poster_bonus(client_id, current_bonus, add_amount):
     if not POSTER_TOKEN: return
-    url = f"{POSTER_API_URL}/clients.setClient"
+    # ВИПРАВЛЕНО: Було setClient, стало updateClient
+    url = f"{POSTER_API_URL}/clients.updateClient"
     payload = {
         "client_id": client_id,
         "bonus": float(current_bonus) + float(add_amount)
     }
-    requests.post(f"{url}?token={POSTER_TOKEN}", json=payload)
+    try:
+        requests.post(f"{url}?token={POSTER_TOKEN}", json=payload)
+    except Exception as e:
+        print(f"Помилка Poster API (update bonus): {e}")
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -307,7 +314,6 @@ def profile_cmd(message):
     user_data = db_manage_user(user_id)
     phone = user_data[0] 
     
-    # Якщо клієнт натискає "Профіль", а в нас вже є його телефон (але в Poster його чомусь немає)
     if phone:
         client_poster = get_poster_client(phone)
         if not client_poster:
@@ -325,20 +331,14 @@ def handle_contact(message):
     phone = message.contact.phone_number
     if not phone.startswith('+'): phone = '+' + phone
     
-    # Зберігаємо телефон локально
     user_data = db_manage_user(user_id, phone=phone)
     
     bot.send_message(user_id, "⏳ Синхронізація з Poster...", reply_markup=types.ReplyKeyboardRemove())
-    
-    # Перевіряємо в Poster
     client_poster = get_poster_client(phone)
     if not client_poster:
-        # Намагаємось створити
-        created = create_poster_client(phone, message.from_user.first_name, user_id)
-        if created:
+        res = create_poster_client(phone, message.from_user.first_name, user_id)
+        if res:
             bot.send_message(user_id, "✅ Ваш профіль успішно створено в базі Poster!")
-        else:
-            bot.send_message(user_id, "❌ Не вдалося створити профіль в Poster (дивіться помилку вище).")
     else:
         bot.send_message(user_id, "✅ Ваш профіль знайдено в базі Poster!")
         
@@ -500,7 +500,7 @@ def render_cart(chat_id, message_id=None):
     summary = ""
     for k, count in item_counts.items():
         summary += f"• {PRODUCTS[k]['name']} x{count} = {PRODUCTS[k]['price'] * count} грн\n"
-        markup.row(types.InlineKeyboardButton("➖", callback_data=f"crem_{k}"), types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"), types.KeyboardButton("➕", callback_data=f"cadd_{k}"))
+        markup.row(types.InlineKeyboardButton("➖", callback_data=f"crem_{k}"), types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"), types.InlineKeyboardButton("➕", callback_data=f"cadd_{k}"))
         
     markup.row(types.InlineKeyboardButton("💳 Оформити замовлення", callback_data="checkout"))
     markup.row(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))

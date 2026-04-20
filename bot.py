@@ -17,7 +17,7 @@ ADMIN_ID = os.getenv("ADMIN_ID")
 WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/"
 
 # --- POSTER API ---
-POSTER_TOKEN = "377815:66803259adcbc9e089303515afbb73e7"
+POSTER_TOKEN = os.getenv("POSTER_TOKEN") # Токен береться з середовища Render
 POSTER_API_URL = "https://joinposter.com/api"
 
 bot = telebot.TeleBot(TOKEN)
@@ -25,6 +25,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- РОБОТА З POSTER API ---
 def get_poster_client(phone_number):
+    if not POSTER_TOKEN: return None
     # Видаляємо зайві символи з номера для Poster
     clean_phone = re.sub(r'\D', '', phone_number)
     url = f"{POSTER_API_URL}/clients.getClients"
@@ -38,6 +39,7 @@ def get_poster_client(phone_number):
     return None
 
 def create_poster_client(phone_number, name):
+    if not POSTER_TOKEN: return None
     clean_phone = re.sub(r'\D', '', phone_number)
     url = f"{POSTER_API_URL}/clients.setClient"
     payload = {
@@ -53,6 +55,7 @@ def create_poster_client(phone_number, name):
     return None
 
 def update_poster_bonus(client_id, current_bonus, add_amount):
+    if not POSTER_TOKEN: return
     url = f"{POSTER_API_URL}/clients.setClient"
     payload = {
         "client_id": client_id,

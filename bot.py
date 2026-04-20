@@ -17,38 +17,52 @@ ADMIN_ID = os.getenv("ADMIN_ID")
 WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/"
 
 # --- POSTER API ---
-POSTER_TOKEN = os.getenv("POSTER_TOKEN") # Токен береться з середовища Render
+POSTER_TOKEN = os.getenv("POSTER_TOKEN")
 POSTER_API_URL = "https://joinposter.com/api"
 
 bot = telebot.TeleBot(TOKEN)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- РОБОТА З POSTER API ---
+# --- РОБОТА З POSTER API (ОНОВЛЕНО) ---
 def get_poster_client(phone_number):
     if not POSTER_TOKEN: return None
-    # Видаляємо зайві символи з номера для Poster
-    clean_phone = re.sub(r'\D', '', phone_number)
     url = f"{POSTER_API_URL}/clients.getClients"
-    params = {"token": POSTER_TOKEN, "phone": clean_phone}
-    try:
-        res = requests.get(url, params=params).json()
-        if res.get("response"):
-            return res["response"][0]
-    except Exception as e:
-        print(f"Помилка Poster API (get): {e}")
+    
+    # Шукаємо і з плюсом, і без плюса, щоб Poster точно знайшов клієнта
+    for phone_variant in [phone_number, phone_number.replace('+', '')]:
+        params = {"token": POSTER_TOKEN, "phone": phone_variant}
+        try:
+            res = requests.get(url, params=params).json()
+            if res.get("response"):
+                return res["response"][0]
+        except Exception as e:
+            print(f"Помилка Poster API (get): {e}")
     return None
 
 def create_poster_client(phone_number, name):
     if not POSTER_TOKEN: return None
-    clean_phone = re.sub(r'\D', '', phone_number)
+    
+    # 1. Poster ВИМАГАЄ ID групи для створення клієнта. Отримуємо першу доступну групу.
+    group_id = 1
+    try:
+        groups_res = requests.get(f"{POSTER_API_URL}/clients.getGroups", params={"token": POSTER_TOKEN}).json()
+        if groups_res.get("response"):
+            group_id = groups_res["response"][0]["client_groups_id_client"]
+    except Exception as e:
+        print(f"Не вдалося отримати групи з Poster: {e}")
+
+    # 2. Створюємо самого клієнта
     url = f"{POSTER_API_URL}/clients.setClient"
     payload = {
         "client_name": name or "Клієнт Telegram",
-        "phone": clean_phone,
+        "phone": phone_number,
+        "client_groups_id_client": group_id, # Тепер Poster пропустить цей запит!
         "bonus": 0
     }
     try:
         res = requests.post(f"{url}?token={POSTER_TOKEN}", json=payload).json()
+        if "error" in res:
+            print(f"ПОМИЛКА СТВОРЕННЯ В POSTER: {res['error']}")
         return res.get("response")
     except Exception as e:
         print(f"Помилка Poster API (create): {e}")
@@ -79,7 +93,6 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS inventory 
                      (product_key TEXT PRIMARY KEY, total_qty INTEGER DEFAULT 0)''')
         
-        # Додаємо колонку phone, якщо її не було в старій базі
         try: c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
         except: pass
 
@@ -236,7 +249,7 @@ def send_product_card(chat_id, key):
 # --- ДОДАТКОВІ ФУНКЦІЇ (QR) ---
 def generate_customer_qr(phone_number):
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(phone_number) # Для сканера касира Poster - лише номер телефону
+    qr.add_data(phone_number) 
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
     bio = BytesIO()
@@ -267,16 +280,14 @@ def start(message):
     args = message.text.split()
     if len(args) > 1 and args[1].isdigit():
         referrer_id = int(args[1])
-        # Якщо клієнт перейшов по посиланню друга і ще не був запрошений
         if referrer_id != user_id and user_data[2] is None: 
             with sqlite3.connect("pinkcanna.db") as conn:
                 c = conn.cursor()
                 c.execute("UPDATE users SET referred_by = ? WHERE user_id = ?", (referrer_id, user_id))
                 conn.commit()
             
-            # Нараховуємо бонус рефералу через Poster
             referrer_data = db_manage_user(referrer_id)
-            if referrer_data and referrer_data[0]: # якщо в друга вказаний телефон
+            if referrer_data and referrer_data[0]: 
                 client_poster = get_poster_client(referrer_data[0])
                 if client_poster:
                     update_poster_bonus(client_poster['client_id'], client_poster['bonus'], 50)
@@ -294,7 +305,13 @@ def back_to_menu(message):
 def profile_cmd(message):
     user_id = message.chat.id
     user_data = db_manage_user(user_id)
-    phone = user_data[0] # телефон у базі
+    phone = user_data[0] 
+    
+    # Якщо клієнт натискає "Профіль", а в нас вже є його телефон (але в Poster його чомусь немає)
+    if phone:
+        client_poster = get_poster_client(phone)
+        if not client_poster:
+            create_poster_client(phone, message.from_user.first_name)
     
     if not phone:
         bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nЩоб отримувати кешбек та знижки, поділіться своїм номером телефону. Це створить вашу бонусну картку в Poster.", reply_markup=contact_menu(), parse_mode="Markdown")
@@ -308,16 +325,14 @@ def handle_contact(message):
     phone = message.contact.phone_number
     if not phone.startswith('+'): phone = '+' + phone
     
-    # Зберігаємо телефон локально
     user_data = db_manage_user(user_id, phone=phone)
     
-    # Створюємо в Poster
-    bot.send_message(user_id, "⏳ Реєстрація у бонусній системі...", reply_markup=types.ReplyKeyboardRemove())
+    bot.send_message(user_id, "⏳ Синхронізація з Poster...", reply_markup=types.ReplyKeyboardRemove())
     client_poster = get_poster_client(phone)
     if not client_poster:
         create_poster_client(phone, message.from_user.first_name)
         
-    bot.send_message(user_id, "✅ Номер успішно підключено!", reply_markup=main_menu())
+    bot.send_message(user_id, "✅ Ваш профіль успішно підключено!", reply_markup=main_menu())
     display_profile(message, phone, user_data[1])
 
 def display_profile(message, phone, game_discount):
@@ -325,7 +340,6 @@ def display_profile(message, phone, game_discount):
     bot_name = bot.get_me().username
     ref_link = f"https://t.me/{bot_name}?start={user_id}"
     
-    # Отримуємо свіжий баланс напряму з Poster
     client_poster = get_poster_client(phone)
     poster_bonus = float(client_poster['bonus']) if client_poster else 0.0
     
@@ -353,7 +367,7 @@ def show_qr_callback(call):
     client_poster = get_poster_client(phone)
     poster_bonus = float(client_poster['bonus']) if client_poster else 0.0
 
-    qr = generate_customer_qr(phone) # Генеруємо QR з номером
+    qr = generate_customer_qr(phone) 
     caption = f"🪪 **Цифрова карта Poster**\n💰 Баланс: **{int(poster_bonus)} грн**\n\nПокажіть цей код касиру."
     bot.send_photo(user_id, qr, caption=caption, parse_mode="Markdown")
 
@@ -457,7 +471,6 @@ def render_cart(chat_id, message_id=None):
     items = [row[0] for row in raw_items]
     total = sum(PRODUCTS[k]['price'] for k in items)
     
-    # Витягуємо баланси
     user_data = db_manage_user(chat_id)
     phone = user_data[0]
     discount = user_data[1]
@@ -526,7 +539,6 @@ def pay(call):
     if total_benefit > 0:
         prices.append(types.LabeledPrice("🎁 Бонуси", -int((total_price - 1 if total_benefit >= total_price else total_benefit) * 100)))
     
-    # Передаємо використані бонуси Poster в payload
     payload = f"pay_{used_poster_bonus}"
     bot.send_invoice(chat_id, "Pink Canna", "Оплата", payload, PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=True)
 
@@ -538,7 +550,6 @@ def success(message):
     bot.send_message(message.chat.id, "✅ Дякуємо за оплату! Замовлення в обробці.")
     purchased_items = db_confirm_purchase(message.chat.id)
     
-    # Віднімаємо бонуси з Poster API
     used_bonus = float(message.successful_payment.invoice_payload.replace("pay_", ""))
     if used_bonus > 0:
         user_data = db_manage_user(message.chat.id)
@@ -605,28 +616,24 @@ def process_broadcast(message):
     bot.send_message(ADMIN_ID, f"✅ Отримали: {count} юзерів.")
 
 # --- AI ---
-@bot.callback_query_handler(func=lambda call: call.data == "ai_more")
-def ai_more_options(call):
-    bot.answer_callback_query(call.id); handle_ai_conversation(call.message, "Ще варіанти?")
-
 @bot.message_handler(func=lambda m: True)
 def ai_consultant(message):
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD", "👤 Профіль"]: return
     if message.text == "📰 Новини": return bot.send_message(message.chat.id, "🌿 СБД легальний згідно з Постановою КМУ №324.")
-    bot.send_chat_action(message.chat.id, 'typing'); handle_ai_conversation(message, message.text)
-
-def handle_ai_conversation(message, text_input):
+    bot.send_chat_action(message.chat.id, 'typing')
+    
     chat_id = message.chat.id
     history = db_manage_history(chat_id)
-    db_manage_history(chat_id, "user", text_input)
+    db_manage_history(chat_id, "user", message.text)
     avail = [f"{k}: {p['name']} ({p['price']}грн)" for k, p in PRODUCTS.items() if db_get_stock(k) > 0]
     system_prompt = f"Ти Pink Canna AI. В наявності: {', '.join(avail)}. Вказуй 'Код' в [код]."
+    
     try:
-        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": text_input}])
+        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message.text}])
         ai_text = response.choices[0].message.content
         db_manage_history(chat_id, "assistant", ai_text)
         keys = re.findall(r'\[([a-zA-Z0-9_]+)\]', ai_text)
-        bot.send_message(chat_id, re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip(), reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔄 Ще", callback_data="ai_more")))
+        bot.send_message(chat_id, re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip())
         for k in keys:
             if k in PRODUCTS and db_get_stock(k) > 0: send_product_card(chat_id, k)
     except: bot.send_message(chat_id, "⚠️ AI офлайн.")
@@ -634,3 +641,4 @@ def handle_ai_conversation(message, text_input):
 if __name__ == "__main__":
     init_db()
     bot.infinity_polling()
+

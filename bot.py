@@ -55,21 +55,23 @@ def poster_request(endpoint, method="GET", data=None):
     if not data:
         data = {}
 
-    # 🔥 token всюди
+    # Токен завжди передається в URL (query parameters)
     params = {"token": POSTER_TOKEN}
-    data_with_token = {**data, "token": POSTER_TOKEN}
 
     try:
         print("\n===== POSTER REQUEST =====")
         print("URL:", url)
         print("METHOD:", method)
         print("PARAMS:", params)
-        print("DATA:", data_with_token)
+        print("DATA (JSON):", data)
 
         if method == "GET":
-            res = requests.get(url, params=data_with_token, timeout=10)
+            # Для GET запитів об'єднуємо токен та інші параметри в URL
+            merged_params = {**params, **data}
+            res = requests.get(url, params=merged_params, timeout=10)
         else:
-            res = requests.post(url, params=params, data=data_with_token, timeout=10)
+            # Для POST запитів токен в URL, а дані - в тілі як JSON
+            res = requests.post(url, params=params, json=data, timeout=10)
 
         print("STATUS:", res.status_code)
         print("TEXT:", res.text)
@@ -91,18 +93,27 @@ def create_poster_client(phone, name, chat_id):
     payload = {
         "client_name": name or "Telegram Client",
         "phone": phone,
+        "client_groups_id_client": 1, # Група за замовчуванням
         "client_sex": 0
     }
 
-    res = poster_request("clients.setClient", "POST", payload)
+    # Використовуємо clients.createClient для REST API
+    res = poster_request("clients.createClient", "POST", payload)
 
     if not res:
         bot.send_message(chat_id, "❌ Poster не відповідає (дивись консоль)")
         return
 
     if "error" in res:
-        code = res["error"]["code"]
-        message = res["error"].get("message", "")
+        error_data = res["error"]
+        
+        # Обробка формату помилки Poster (може бути dict або int)
+        if isinstance(error_data, dict):
+            code = error_data.get("code")
+            message = error_data.get("message", "Невідома помилка")
+        else:
+            code = error_data
+            message = "Клієнт з таким телефоном вже існує або помилка валідації"
 
         if code == 34:
             bot.send_message(chat_id, "✅ Ви вже є в системі")
@@ -165,3 +176,4 @@ if __name__ == "__main__":
     init_db()
     print("🚀 Бот запущений")
     bot.infinity_polling()
+

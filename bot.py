@@ -109,11 +109,23 @@ def create_poster_client(phone_number, name, chat_id):
 
 def update_poster_bonus(client_id, current_bonus, add_amount):
     if not POSTER_TOKEN: return
+    
+    new_bonus = float(current_bonus) + float(add_amount)
+    
     payload = {
         "client_id": client_id,
-        "bonus": float(current_bonus) + float(add_amount)
+        "bonus": new_bonus
     }
-    poster_request("clients.updateClient", "POST", payload)
+    
+    # Використовуємо clients.setClient для оновлення існуючого запису
+    res = poster_request("clients.setClient", "POST", payload)
+    
+    if res and "error" in res:
+        print(f"❌ Помилка Poster API (оновлення бонусів): {res['error']}")
+    elif res:
+        print(f"✅ Бонуси в Poster успішно оновлено! Новий баланс: {new_bonus}")
+    else:
+        print("❌ Не вдалося оновити бонуси: Poster не відповів.")
 
 
 # --- БАЗА ДАНИХ ---

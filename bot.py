@@ -5,14 +5,6 @@ import sqlite3
 import re
 import requests
 import time
-import logging
-
-# --- LOGGING ---
-logging.basicConfig(
-    filename="bot.log",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
 
 # --- ENV ---
 TOKEN = os.getenv("BOT_TOKEN")
@@ -56,36 +48,41 @@ def normalize_phone(phone):
         return "380" + clean[1:]
     return clean
 
-# --- POSTER CORE (FIXED) ---
-def poster_request(endpoint, method="GET", data=None, retries=3):
+# --- POSTER REQUEST (MAX DEBUG) ---
+def poster_request(endpoint, method="GET", data=None):
     url = f"{POSTER_API_URL}/{endpoint}"
 
     if not data:
         data = {}
 
-    params = {"token": POSTER_TOKEN}  # 🔥 критично
+    # 🔥 token всюди
+    params = {"token": POSTER_TOKEN}
+    data_with_token = {**data, "token": POSTER_TOKEN}
 
-    for attempt in range(retries):
+    try:
+        print("\n===== POSTER REQUEST =====")
+        print("URL:", url)
+        print("METHOD:", method)
+        print("PARAMS:", params)
+        print("DATA:", data_with_token)
+
+        if method == "GET":
+            res = requests.get(url, params=data_with_token, timeout=10)
+        else:
+            res = requests.post(url, params=params, data=data_with_token, timeout=10)
+
+        print("STATUS:", res.status_code)
+        print("TEXT:", res.text)
+
         try:
-            if method == "GET":
-                res = requests.get(url, params={**params, **data}, timeout=10)
-            else:
-                res = requests.post(url, params=params, data=data, timeout=10)
+            return res.json()
+        except:
+            print("❌ НЕ JSON ВІДПОВІДЬ")
+            return None
 
-            if res.status_code != 200:
-                logging.error(f"HTTP {res.status_code}: {res.text}")
-                time.sleep(1)
-                continue
-
-            json_res = res.json()
-            logging.info(f"{endpoint} RESPONSE: {json_res}")
-            return json_res
-
-        except Exception as e:
-            logging.error(f"Request error: {e}")
-            time.sleep(1)
-
-    return None
+    except Exception as e:
+        print("❌ EXCEPTION:", e)
+        return None
 
 # --- CLIENT CREATE ---
 def create_poster_client(phone, name, chat_id):
@@ -100,7 +97,7 @@ def create_poster_client(phone, name, chat_id):
     res = poster_request("clients.setClient", "POST", payload)
 
     if not res:
-        bot.send_message(chat_id, "❌ Poster не відповідає")
+        bot.send_message(chat_id, "❌ Poster не відповідає (дивись консоль)")
         return
 
     if "error" in res:
@@ -109,7 +106,7 @@ def create_poster_client(phone, name, chat_id):
 
         if code == 34:
             bot.send_message(chat_id, "✅ Ви вже є в системі")
-            return True
+            return
 
         bot.send_message(chat_id, f"⚠️ Poster error {code}: {message}")
         return
@@ -139,7 +136,6 @@ def health(message):
 def reset(message):
     with sqlite3.connect("pink_fix.db") as conn:
         conn.execute("UPDATE users SET phone = NULL WHERE user_id = ?", (message.chat.id,))
-
     bot.send_message(message.chat.id, "♻️ Дані очищено")
 
 @bot.message_handler(func=lambda m: m.text == "👤 Мій профіль")

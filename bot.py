@@ -235,29 +235,29 @@ def db_manage_history(user_id, role=None, content=None):
         c.execute("SELECT role, content FROM ai_history WHERE user_id = ? ORDER BY rowid ASC", (user_id,))
         return [{"role": row[0], "content": row[1]} for row in c.fetchall()]
 
-# --- ТОВАРИ ---
+# --- ТОВАРИ (ВАЖЛИВО: ОНОВІТЬ poster_id) ---
 CATEGORIES = {"kanna": "🌿 Екстракти Канни", "cbd": "💧 Олії та Релакс", "wellness": "🧠 Сон та Енергія", "topical": "🧴 Вейпи та Догляд"}
 
 PRODUCTS = {
-    "kanna10x": {"name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
-    "crystal": {"name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
-    "strong": {"name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
-    "jelly": {"name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
-    "cbd_5_10": {"name": "Олія CBD 5% (10мл)", "price": 800, "image": "cbd_5_10.jpg", "category": "cbd", "short": "35мг в піпетці", "info": "💧 **Олія CBD 5%:** Ідеально для легкого стресу та профілактики."},
-    "cbd_10_10": {"name": "Олія CBD 10% (10мл)", "price": 1300, "image": "cbd_10_10.jpg", "category": "cbd", "short": "70мг в піпетці", "info": "💧 **Олія CBD 10%:** Універсальна концентрація для сну та спокою."},
-    "cbd_15_10": {"name": "Олія CBD 15% (10мл)", "price": 1800, "image": "cbd_15_10.jpg", "category": "cbd", "short": "105мг в піпетці", "info": "💧 **Олія CBD 15%:** Для хронічного болю та підвищеної тривожності."},
-    "cbd_20_10": {"name": "Олія CBD 20% (10мл)", "price": 2100, "image": "cbd_20_10.jpg", "category": "cbd", "short": "140мг в піпетці", "info": "💧 **Олія CBD 20%:** Сильна дія для серйозних симптомів."},
-    "cbd_30_10": {"name": "Олія CBD 30% (10мл)", "price": 3400, "image": "cbd_30_10.jpg", "category": "cbd", "short": "210мг в піпетці", "info": "💧 **Олія CBD 30%:** Максимальна концентрація."},
-    "cbd_5_30": {"name": "Олія CBD 5% (30мл)", "price": 2000, "image": "cbd_5_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 5% (30мл):** Вигідний формат."},
-    "cbd_10_30": {"name": "Олія CBD 10% (30мл)", "price": 3400, "image": "cbd_10_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 10% (30мл):** Вигідний формат."},
-    "cbd_15_30": {"name": "Олія CBD 15% (30мл)", "price": 4500, "image": "cbd_15_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 15% (30мл):** Вигідний формат."},
-    "cbd_20_30": {"name": "Олія CBD 20% (30мл)", "price": 5200, "image": "cbd_20_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 20% (30мл):** Вигідний формат."},
-    "cbd_30_30": {"name": "Олія CBD 30% (30мл)", "price": 8200, "image": "cbd_30_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 30% (30мл):** Вигідний формат."},
-    "sleep": {"name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
-    "gaba": {"name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
-    "energy": {"name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
-    "vape": {"name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
-    "cream": {"name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
+    "kanna10x": {"poster_id": 0, "name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
+    "crystal": {"poster_id": 0, "name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
+    "strong": {"poster_id": 0, "name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
+    "jelly": {"poster_id": 0, "name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
+    "cbd_5_10": {"poster_id": 0, "name": "Олія CBD 5% (10мл)", "price": 800, "image": "cbd_5_10.jpg", "category": "cbd", "short": "35мг в піпетці", "info": "💧 **Олія CBD 5%:** Ідеально для легкого стресу та профілактики."},
+    "cbd_10_10": {"poster_id": 0, "name": "Олія CBD 10% (10мл)", "price": 1300, "image": "cbd_10_10.jpg", "category": "cbd", "short": "70мг в піпетці", "info": "💧 **Олія CBD 10%:** Універсальна концентрація для сну та спокою."},
+    "cbd_15_10": {"poster_id": 0, "name": "Олія CBD 15% (10мл)", "price": 1800, "image": "cbd_15_10.jpg", "category": "cbd", "short": "105мг в піпетці", "info": "💧 **Олія CBD 15%:** Для хронічного болю та підвищеної тривожності."},
+    "cbd_20_10": {"poster_id": 0, "name": "Олія CBD 20% (10мл)", "price": 2100, "image": "cbd_20_10.jpg", "category": "cbd", "short": "140мг в піпетці", "info": "💧 **Олія CBD 20%:** Сильна дія для серйозних симптомів."},
+    "cbd_30_10": {"poster_id": 0, "name": "Олія CBD 30% (10мл)", "price": 3400, "image": "cbd_30_10.jpg", "category": "cbd", "short": "210мг в піпетці", "info": "💧 **Олія CBD 30%:** Максимальна концентрація."},
+    "cbd_5_30": {"poster_id": 0, "name": "Олія CBD 5% (30мл)", "price": 2000, "image": "cbd_5_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 5% (30мл):** Вигідний формат."},
+    "cbd_10_30": {"poster_id": 0, "name": "Олія CBD 10% (30мл)", "price": 3400, "image": "cbd_10_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 10% (30мл):** Вигідний формат."},
+    "cbd_15_30": {"poster_id": 0, "name": "Олія CBD 15% (30мл)", "price": 4500, "image": "cbd_15_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 15% (30мл):** Вигідний формат."},
+    "cbd_20_30": {"poster_id": 0, "name": "Олія CBD 20% (30мл)", "price": 5200, "image": "cbd_20_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 20% (30мл):** Вигідний формат."},
+    "cbd_30_30": {"poster_id": 0, "name": "Олія CBD 30% (30мл)", "price": 8200, "image": "cbd_30_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 30% (30мл):** Вигідний формат."},
+    "sleep": {"poster_id": 0, "name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
+    "gaba": {"poster_id": 0, "name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
+    "energy": {"poster_id": 0, "name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
+    "vape": {"poster_id": 0, "name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
+    "cream": {"poster_id": 0, "name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
 }
 
 DOSAGE_DATA = {
@@ -599,29 +599,117 @@ def pre_checkout(q): bot.answer_pre_checkout_query(q.id, ok=True)
 @bot.message_handler(content_types=['successful_payment'])
 def success(message):
     bot.send_message(message.chat.id, "✅ Дякуємо за оплату! Замовлення в обробці.")
-    purchased_items = db_confirm_purchase(message.chat.id)
     
-    used_bonus = float(message.successful_payment.invoice_payload.replace("pay_", ""))
-    if used_bonus > 0:
-        user_data = db_manage_user(message.chat.id)
-        if user_data[0]:
-            client_poster = get_poster_client(user_data[0])
+    user_id = message.chat.id
+    # Отримуємо товари ДО їх видалення з кошика
+    purchased_items = [row[0] for row in db_get_cart_with_expiry(user_id)]
+    original_price = sum(PRODUCTS[k]['price'] for k in purchased_items)
+    paid_amount = message.successful_payment.total_amount / 100
+    total_discount = original_price - paid_amount
+
+    # Видаляємо з кошика та анулюємо знижку
+    db_confirm_purchase(user_id)
+    
+    used_poster_bonus = 0.0
+    payload = message.successful_payment.invoice_payload
+    if payload.startswith("pay_"):
+        try: used_poster_bonus = float(payload.split("_")[1])
+        except: pass
+
+    user_data = db_manage_user(user_id)
+    phone = user_data[0] if user_data else None
+
+    # Відправка чека в Poster
+    if phone:
+        products_list = []
+        for k in set(purchased_items):
+            count = purchased_items.count(k)
+            poster_id = PRODUCTS[k].get("poster_id", 0)
+            products_list.append({"product_id": poster_id, "count": count})
+
+        order_data = {
+            "spot_id": 1, # Замініть на реальний ID вашого закладу
+            "phone": phone,
+            "products": products_list,
+            "comment": f"Оплачено в Telegram. Загальна знижка (гра + бонуси): {total_discount} грн."
+        }
+        
+        # Передаємо знижку офіційно в чек Poster
+        if total_discount > 0:
+            order_data["promotion"] = [{
+                "name": "Знижка з Telegram",
+                "type": "sum",
+                "value": total_discount
+            }]
+            
+        poster_request("incomingOrders.createIncomingOrder", "POST", order_data)
+
+        # Списуємо баланс бонусів з самого акаунту Poster
+        if used_poster_bonus > 0:
+            client_poster = get_poster_client(phone)
             if client_poster:
-                update_poster_bonus(client_poster['client_id'], client_poster['bonus'], -used_bonus)
+                update_poster_bonus(client_poster['client_id'], client_poster['bonus'], -used_poster_bonus)
 
     if ADMIN_ID:
         try:
             summary = ", ".join([f"{PRODUCTS[k]['name']} (x{purchased_items.count(k)})" for k in set(purchased_items)])
-            bot.send_message(ADMIN_ID, f"🚨 **ЗАМОВЛЕННЯ ОПЛАЧЕНО!**\n👤 Клієнт: @{message.from_user.username}\n📦 Товари: {summary}\n💰 Сума: {message.successful_payment.total_amount / 100} UAH")
+            bot.send_message(ADMIN_ID, f"🚨 **ЗАМОВЛЕННЯ ОПЛАЧЕНО!**\n👤 Клієнт: @{message.from_user.username}\n📦 Товари: {summary}\n💰 Сума: {paid_amount} UAH")
         except: pass
 
-# --- АДМІНКА ---
+# --- АДМІНКА ТА СКАНУВАННЯ QR ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if str(message.chat.id) != str(ADMIN_ID): return
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton("📦 Склад", callback_data="admin_stock"), types.InlineKeyboardButton("📢 Розсилка", callback_data="admin_broadcast"))
-    bot.send_message(message.chat.id, "👨‍💻 **Адмін-панель**", reply_markup=m, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "👨‍💻 **Адмін-панель**\n\nЩоб списати бонуси клієнта на фізичній касі, просто надішліть сюди його номер телефону (або зіскануйте його QR-код).", reply_markup=m, parse_mode="Markdown")
+
+# ОБРОБНИК СКАНУВАННЯ QR КОДУ (або ручного введення номера адміном)
+@bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_ID) and re.match(r'^\+?\d{10,15}$', m.text.strip()))
+def admin_scan_qr(message):
+    phone = normalize_phone(message.text.strip())
+    client_poster = get_poster_client(phone)
+    
+    if not client_poster:
+        bot.send_message(message.chat.id, f"❌ Клієнта з номером {phone} не знайдено в Poster.")
+        return
+
+    bonus = float(client_poster.get('bonus', 0))
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("💸 Списати бонуси", callback_data=f"admindeduct_{client_poster['client_id']}_{phone}"))
+    
+    text = f"👤 **Клієнт знайдений!**\n\n📱 Телефон: `{phone}`\n🧑 Ім'я: {client_poster.get('firstname', 'Невідомо')} {client_poster.get('lastname', '')}\n💰 Баланс: **{bonus} грн**"
+    bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admindeduct_"))
+def admin_deduct_prompt(call):
+    _, client_id, phone = call.data.split("_")
+    msg = bot.send_message(call.message.chat.id, "Скільки бонусів ви хочете списати? (Введіть число):")
+    bot.register_next_step_handler(msg, process_admin_deduct, client_id, phone)
+
+def process_admin_deduct(message, client_id, phone):
+    try:
+        amount = float(message.text.replace(',', '.'))
+        client_poster = get_poster_client(phone)
+        if client_poster:
+            current_bonus = float(client_poster.get('bonus', 0))
+            if amount > current_bonus:
+                bot.send_message(message.chat.id, f"❌ Помилка: У клієнта лише {current_bonus} бонусів!")
+                return
+
+            # Списуємо бонуси з Poster
+            update_poster_bonus(client_id, current_bonus, -amount)
+            bot.send_message(message.chat.id, f"✅ Успішно списано {amount} бонусів. Новий баланс: {current_bonus - amount} грн.")
+            
+            # Сповіщаємо самого клієнта в боті
+            with sqlite3.connect("pinkcanna.db") as conn:
+                c = conn.cursor()
+                res = c.execute("SELECT user_id FROM users WHERE phone = ?", (phone,)).fetchone()
+                if res:
+                    try: bot.send_message(res[0], f"💸 З вашої карти лояльності було списано {amount} бонусів за покупку на касі.")
+                    except: pass
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Помилка: Введіть коректне число.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_stock")
 def admin_stock_cats(call):

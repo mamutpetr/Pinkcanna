@@ -8,8 +8,6 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from openai import OpenAI
 import time
-
-# --- НОВІ ІМПОРТИ ДЛЯ ШТРИХ-КОДУ ---
 import barcode
 from barcode.writer import ImageWriter
 
@@ -80,17 +78,15 @@ def get_poster_client(phone_number):
     return None
 
 def add_poster_bonus(client_id, amount_uah):
-    """Нарахування або списання бонусів через changeClientBonus. Poster приймає копійки!"""
     if not POSTER_TOKEN: return
     payload = {
         "client_id": client_id,
-        "count": int(amount_uah * 100) # Множимо на 100 (копійки)
+        "count": int(amount_uah * 100)
     }
     res = poster_request("clients.changeClientBonus", "POST", payload)
     return res
 
 def reward_referrer(referrer_id):
-    """Офіційне нарахування 50 бонусів рефералу в Poster"""
     referrer_data = db_manage_user(referrer_id)
     if not referrer_data or not referrer_data[0]:
         return
@@ -104,7 +100,6 @@ def reward_referrer(referrer_id):
         except: pass
 
 def create_poster_client_full(user_id):
-    """Створення клієнта та перенос локальних бонусів у Poster"""
     if not POSTER_TOKEN: return None
     data = user_data_cache.get(user_id, {})
     phone = normalize_phone(data.get('phone', ''))
@@ -112,7 +107,7 @@ def create_poster_client_full(user_id):
     payload = {
         "client_name": data.get('name', 'Клієнт Telegram'),
         "phone": phone,
-        "card_number": phone, # 🔥 ОСЬ ТУТ ДУБЛЮЄТЬСЯ НОМЕР ДЛЯ ШТРИХ-КОДУ 🔥
+        "card_number": phone, 
         "client_sex": data.get('sex', 0),
         "birthday": data.get('birthday', ''),
         "email": data.get('email', ''),
@@ -122,34 +117,22 @@ def create_poster_client_full(user_id):
 
     res = poster_request("clients.createClient", "POST", payload)
 
-    # Якщо створення пройшло успішно
     if res and "error" not in res:
         user_db = db_manage_user(user_id)
-        
-        # 1. Нагороджуємо того, хто запросив
         if user_db[2]: 
             reward_referrer(user_db[2])
             
-        # 2. 🔥 ПЕРЕНОСИМО ТАПАЛКУ В POSTER 🔥
         local_discount = user_db[1]
         if local_discount > 0:
             new_client = get_poster_client(phone)
             if new_client:
                 add_poster_bonus(new_client['client_id'], local_discount)
-                db_manage_user(user_id, discount=0) # Обнуляємо в боті
+                db_manage_user(user_id, discount=0)
                 try:
                     bot.send_message(user_id, f"💸 Твої натапані **{local_discount} грн** успішно перенесені на бонусну карту Poster!", parse_mode="Markdown")
                 except: pass
             
     return res
-
-def update_poster_bonus(client_id, current_bonus_kopecks, add_amount_kopecks):
-    """Застаріла функція (залишив для сумісності), краще використовувати add_poster_bonus"""
-    if not POSTER_TOKEN: return
-    new_bonus = int(current_bonus_kopecks) + int(add_amount_kopecks)
-    payload = {"client_id": client_id, "bonus": new_bonus}
-    poster_request("clients.setClient", "POST", payload)
-
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -262,11 +245,11 @@ def db_manage_history(user_id, role=None, content=None):
 CATEGORIES = {"kanna": "🌿 Екстракти Канни", "cbd": "💧 Олії та Релакс", "wellness": "🧠 Сон та Енергія", "topical": "🧴 Вейпи та Догляд"}
 
 PRODUCTS = {
-    "vape": {"poster_id": 237, "name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
-    "kanna10x": {"poster_id": 305, "name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
-    "crystal": {"poster_id": 304, "name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
-    "strong": {"poster_id": 304, "name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
-    "jelly": {"poster_id": 197, "name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
+    "vape": {"poster_id": 6, "name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
+    "kanna10x": {"poster_id": 0, "name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
+    "crystal": {"poster_id": 0, "name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
+    "strong": {"poster_id": 0, "name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
+    "jelly": {"poster_id": 0, "name": "СБД Желе", "price": 1900, "image": "Cbdgele.jpg", "category": "cbd", "short": "Смачний релакс.", "info": "🍬 **CBD Jelly:** Зручний формат для підтримки спокою протягом дня."},
     "cbd_5_10": {"poster_id": 0, "name": "Олія CBD 5% (10мл)", "price": 800, "image": "cbd_5_10.jpg", "category": "cbd", "short": "35мг в піпетці", "info": "💧 **Олія CBD 5%:** Ідеально для легкого стресу та профілактики."},
     "cbd_10_10": {"poster_id": 0, "name": "Олія CBD 10% (10мл)", "price": 1300, "image": "cbd_10_10.jpg", "category": "cbd", "short": "70мг в піпетці", "info": "💧 **Олія CBD 10%:** Універсальна концентрація для сну та спокою."},
     "cbd_15_10": {"poster_id": 0, "name": "Олія CBD 15% (10мл)", "price": 1800, "image": "cbd_15_10.jpg", "category": "cbd", "short": "105мг в піпетці", "info": "💧 **Олія CBD 15%:** Для хронічного болю та підвищеної тривожності."},
@@ -277,10 +260,10 @@ PRODUCTS = {
     "cbd_15_30": {"poster_id": 0, "name": "Олія CBD 15% (30мл)", "price": 4500, "image": "cbd_15_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 15% (30мл):** Вигідний формат."},
     "cbd_20_30": {"poster_id": 0, "name": "Олія CBD 20% (30мл)", "price": 5200, "image": "cbd_20_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 20% (30мл):** Вигідний формат."},
     "cbd_30_30": {"poster_id": 0, "name": "Олія CBD 30% (30мл)", "price": 8200, "image": "cbd_30_30.jpg", "category": "cbd", "short": "Економ формат", "info": "💧 **Олія CBD 30% (30мл):** Вигідний формат."},
-    "sleep": {"poster_id": 234, "name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
-    "gaba": {"poster_id": 118, "name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
-    "energy": {"poster_id": 234, "name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
-    "cream": {"poster_id": 139, "name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
+    "sleep": {"poster_id": 0, "name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
+    "gaba": {"poster_id": 0, "name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
+    "energy": {"poster_id": 0, "name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
+    "cream": {"poster_id": 0, "name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
 }
 
 DOSAGE_DATA = {
@@ -317,12 +300,10 @@ def send_product_card(chat_id, key):
         else: bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="Markdown")
     except: bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="Markdown")
 
-# --- ГЕНЕРАЦІЯ ШТРИХ-КОДУ ДЛЯ КАСИ ---
 def generate_customer_barcode(phone_number):
     code128 = barcode.get_barcode_class('code128')
     bar = code128(phone_number, writer=ImageWriter())
     bio = BytesIO()
-    # module_width робить лінії чіткішими для екрана смартфона
     bar.write(bio, options={"write_text": True, "module_width": 0.3})
     bio.seek(0)
     return bio
@@ -592,10 +573,13 @@ def render_cart(chat_id, message_id=None):
     markup.row(types.InlineKeyboardButton("💳 Оформити замовлення", callback_data="start_checkout"))
     markup.row(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))
     
-    final_total = total - total_benefit if total_benefit < total else 1
     text = f"**Ваш кошик:**\n\n{summary}\n"
-    if total_benefit > 0: text += f"🎁 Бонуси Poster та знижки: -{int(total_benefit)} грн\n"
-    text += f"💰 **До сплати: {int(final_total)} грн**\n\n⏳ *Бронь ще на {mins_left} хв!*"
+    text += f"💰 **Сума товарів: {total} грн**\n"
+    if total_benefit > 0: 
+        text += f"🎁 Доступно бонусів: {int(total_benefit)} грн\n"
+        text += f"*(При доставці бонусами можна оплатити до 30% чека. При самовивозі — на касі)*\n"
+    text += f"\n⏳ *Бронь ще на {mins_left} хв!*"
+    
     if message_id: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
@@ -621,17 +605,77 @@ def start_checkout(call):
           types.InlineKeyboardButton("🚚 Доставка", callback_data="order_delivery"))
     bot.edit_message_text("📦 Оберіть спосіб отримання:", call.message.chat.id, call.message.message_id, reply_markup=m)
 
+# --- ЛОГІКА САМОВИВОЗУ (БЕЗ ОПЛАТИ) ---
+def process_pickup_order(user_id):
+    items = db_get_cart_with_expiry(user_id)
+    if not items:
+        bot.send_message(user_id, "Ваш кошик порожній.")
+        return
+
+    purchased_items = [row[0] for row in items]
+    total_price = sum(PRODUCTS[k]['price'] for k in purchased_items)
+
+    user_data = db_manage_user(user_id)
+    phone = user_data[0] if user_data else None
+    local_discount = user_data[1]
+
+    # Переносимо локальну знижку в Poster перед самовивозом
+    if phone and local_discount > 0:
+        client_poster = get_poster_client(phone)
+        if client_poster:
+            add_poster_bonus(client_poster['client_id'], local_discount)
+            db_manage_user(user_id, discount=0)
+
+    products_list = []
+    for k in set(purchased_items):
+        count = purchased_items.count(k)
+        poster_id = PRODUCTS[k].get("poster_id", 0)
+        products_list.append({"product_id": poster_id, "count": count})
+
+    order_data_poster = {
+        "spot_id": SPOT_ID,
+        "phone": phone if phone else "",
+        "products": products_list,
+        "comment": "❗️САМОВИВІЗ (Бронь на 3 години). Оплата на касі."
+    }
+
+    if phone:
+        client_poster = get_poster_client(phone)
+        if client_poster: order_data_poster["client_id"] = client_poster["client_id"]
+
+    res_order = poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
+
+    if res_order and "error" in res_order:
+        print(f"❌ ПОМИЛКА POSTER: {res_order['error']}")
+        bot.send_message(user_id, "⚠️ Сталася помилка при створенні броні. Зв'яжіться з адміністратором.")
+        return
+    
+    # Підтверджуємо покупку локально (списуємо зі складу)
+    db_confirm_purchase(user_id)
+    
+    bot.send_message(user_id, "✅ **Ваше замовлення успішно заброньовано на 3 години!**\n\nОплата та використання бонусів відбудуться на касі при отриманні. Просто покажіть касиру ваш штрих-код із розділу 👤 **Профіль**.", parse_mode="Markdown")
+
+    if ADMIN_ID:
+        try:
+            summary = ", ".join([f"{PRODUCTS[k]['name']} (x{purchased_items.count(k)})" for k in set(purchased_items)])
+            bot.send_message(ADMIN_ID, f"🔔 **НОВА БРОНЬ (Самовивіз)!**\n👤 Клієнт: {phone}\n📦 Товари: {summary}\n💰 Сума: {total_price} UAH\n*(Якщо не заберуть, поверніть залишки через меню складу)*")
+        except: pass
+
+    if user_id in user_data_cache:
+        del user_data_cache[user_id]
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("order_"))
 def process_order_type(call):
     user_id = call.message.chat.id
     bot.answer_callback_query(call.id)
     if call.data == "order_pickup":
         user_data_cache[user_id] = {'order_type': 'pickup'}
-        send_invoice(user_id)
+        process_pickup_order(user_id)
     else:
         user_data_cache[user_id] = {'order_type': 'delivery', 'step': 'order_city'}
         bot.send_message(user_id, "🏙 Введіть місто доставки (наприклад, Львів):", reply_markup=types.ReplyKeyboardRemove())
 
+# --- ЛОГІКА ДОСТАВКИ (З ОПЛАТОЮ ТА 30% ЛІМІТОМ) ---
 def send_invoice(chat_id):
     items = [row[0] for row in db_get_cart_with_expiry(chat_id)]
     if not items: 
@@ -650,14 +694,21 @@ def send_invoice(chat_id):
         client_poster = get_poster_client(phone)
         if client_poster: poster_bonus_uah = float(client_poster.get('bonus', 0)) / 100
 
-    total_benefit = local_discount + poster_bonus_uah
-    used_poster_bonus_uah = min(poster_bonus_uah, total_price - local_discount - 1) if poster_bonus_uah > 0 else 0
-
-    if total_benefit > 0:
-        prices.append(types.LabeledPrice("🎁 Знижка / Бонуси", -int((total_price - 1 if total_benefit >= total_price else total_benefit) * 100)))
+    total_available_benefit = local_discount + poster_bonus_uah
     
-    payload = f"pay_{used_poster_bonus_uah}_{local_discount}"
-    bot.send_invoice(chat_id, "Pink Canna", "Оплата замовлення", payload, PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=False)
+    # 🔥 ЛІМІТ: Максимум 30% від загальної суми можна оплатити бонусами
+    max_allowed_bonus = total_price * 0.30
+    used_benefit_uah = min(total_available_benefit, max_allowed_bonus)
+
+    if used_benefit_uah > 0:
+        prices.append(types.LabeledPrice("🎁 Знижка (Макс 30%)", -int(used_benefit_uah * 100)))
+    
+    # Вираховуємо, що звідки списувати (пріоритет - локальна знижка)
+    used_local = min(local_discount, used_benefit_uah)
+    used_poster = used_benefit_uah - used_local
+    
+    payload = f"pay_{used_poster}_{used_local}"
+    bot.send_invoice(chat_id, "Pink Canna", "Оплата замовлення (Доставка)", payload, PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=False)
 
 @bot.pre_checkout_query_handler(func=lambda q: True)
 def pre_checkout(q): bot.answer_pre_checkout_query(q.id, ok=True)
@@ -671,23 +722,24 @@ def success(message):
     original_price = sum(PRODUCTS[k]['price'] for k in purchased_items)
     paid_amount = message.successful_payment.total_amount / 100
     total_discount = original_price - paid_amount
-
-    db_confirm_purchase(user_id)
     
     used_poster_bonus_uah = 0.0
+    used_local_discount = 0.0
     payload_parts = message.successful_payment.invoice_payload.split("_")
-    if len(payload_parts) >= 2:
-        try: used_poster_bonus_uah = float(payload_parts[1])
+    if len(payload_parts) >= 3:
+        try: 
+            used_poster_bonus_uah = float(payload_parts[1])
+            used_local_discount = float(payload_parts[2])
         except: pass
 
     user_data = db_manage_user(user_id)
     phone = user_data[0] if user_data else None
+    remaining_local = user_data[1] - used_local_discount
+
+    db_confirm_purchase(user_id) # Очищає кошик і обнуляє локальну знижку
 
     order_info = user_data_cache.get(user_id, {})
-    if order_info.get('order_type') == 'delivery':
-        address_str = f"Доставка: м. {order_info.get('city', '')}, вул. {order_info.get('street', '')}, {order_info.get('house', '')}"
-    else:
-        address_str = "Самовивіз"
+    address_str = f"Доставка: м. {order_info.get('city', '')}, вул. {order_info.get('street', '')}, {order_info.get('house', '')}"
 
     if phone:
         products_list = []
@@ -725,8 +777,12 @@ def success(message):
         elif res_order:
             print("✅ Замовлення успішно залетіло в Poster!")
 
-        if used_poster_bonus_uah > 0 and client_poster:
-            add_poster_bonus(client_poster['client_id'], -used_poster_bonus_uah)
+        if client_poster:
+            if used_poster_bonus_uah > 0:
+                add_poster_bonus(client_poster['client_id'], -used_poster_bonus_uah)
+            # Якщо після 30% ліміту залишилась невикористана тапалка - кидаємо її на баланс в Poster
+            if remaining_local > 0:
+                add_poster_bonus(client_poster['client_id'], remaining_local)
 
     if ADMIN_ID:
         try:
@@ -743,7 +799,7 @@ def admin_panel(message):
     if str(message.chat.id) != str(ADMIN_ID): return
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton("📦 Склад", callback_data="admin_stock"), types.InlineKeyboardButton("📢 Розсилка", callback_data="admin_broadcast"))
-    bot.send_message(message.chat.id, "👨‍💻 **Адмін-панель**\n\nЩоб списати бонуси клієнта на фізичній касі, просто надішліть сюди його номер телефону (або зіскануйте його QR-код).", reply_markup=m, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "👨‍💻 **Адмін-панель**\n\nЩоб списати бонуси клієнта на фізичній касі, просто надішліть сюди його номер телефону (або зіскануйте його штрих-код).", reply_markup=m, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_ID) and re.match(r'^\+?\d{10,15}$', m.text.strip()))
 def admin_scan_qr(message):

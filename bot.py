@@ -262,7 +262,7 @@ PRODUCTS = {
     "sleep": {"poster_id": 0, "name": "Happy caps sleep", "price": 2000, "image": "sleep.jpg", "category": "wellness", "short": "Для засинання.", "info": "💤 **Sleep:** Глибокий сон та швидке відновлення."},
     "gaba": {"poster_id": 0, "name": "Габа #9", "price": 400, "image": "gaba9.jpg", "category": "wellness", "short": "Спокій мозку.", "info": "🧠 **GABA:** Природне гальмо для зайвих думок та стресу."},
     "energy": {"poster_id": 0, "name": "Happy caps energy", "price": 2000, "image": "energy.jpg", "category": "wellness", "short": "Бадьорість.", "info": "⚡ **Energy:** Енергія без кави та тремору."},
-    "vape": {"poster_id": 1111, "name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
+    "vape": {"poster_id": 0, "name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
     "cream": {"poster_id": 0, "name": "СБД Крем", "price": 1600, "image": "cream.jpg", "category": "topical", "short": "Для м'язів.", "info": "🧴 **Cream:** Локальне зняття болю та запалень."}
 }
 
@@ -623,11 +623,13 @@ def success(message):
     bot.send_message(message.chat.id, "✅ Дякуємо за оплату! Замовлення передано в обробку.")
     
     user_id = message.chat.id
+    # Отримуємо товари ДО їх видалення з кошика
     purchased_items = [row[0] for row in db_get_cart_with_expiry(user_id)]
     original_price = sum(PRODUCTS[k]['price'] for k in purchased_items)
     paid_amount = message.successful_payment.total_amount / 100
     total_discount = original_price - paid_amount
 
+    # Видаляємо з кошика та анулюємо знижку
     db_confirm_purchase(user_id)
     
     used_poster_bonus_uah = 0.0
@@ -660,6 +662,11 @@ def success(message):
             "comment": f"[{address_str}] Оплачено в Telegram. Загальна знижка: {total_discount} грн."
         }
         
+        # 🔥 ШУКАЄМО КЛІЄНТА ТА ПРИВ'ЯЗУЄМО ЙОГО ДО ЗАМОВЛЕННЯ 🔥
+        client_poster = get_poster_client(phone)
+        if client_poster:
+            order_data_poster["client_id"] = client_poster["client_id"]
+        
         if total_discount > 0:
             order_data_poster["promotion"] = [{
                 "name": "Знижка з Telegram",
@@ -667,14 +674,23 @@ def success(message):
                 "value": total_discount
             }]
             
-        poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
+        # Відправляємо замовлення
+        res_order = poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
+        
+        # Сигналізація помилок Poster (допоможе вам знайти проблему з ID товарів/закладів)
+        if res_order and "error" in res_order:
+            err_msg = res_order.get("error", "Невідома помилка")
+            print(f"❌ ПОМИЛКА POSTER (Замовлення): {err_msg}")
+            if ADMIN_ID:
+                bot.send_message(ADMIN_ID, f"⚠️ УВАГА! Оплата пройшла, але Poster відхилив замовлення!\nПричина: {err_msg}")
+        elif res_order:
+            print("✅ Замовлення успішно залетіло в Poster з прив'язкою до клієнта!")
 
-        if used_poster_bonus_uah > 0:
-            client_poster = get_poster_client(phone)
-            if client_poster:
-                current_bonus_kopecks = int(client_poster.get('bonus', 0))
-                # Віднімаємо копійки
-                update_poster_bonus(client_poster['client_id'], current_bonus_kopecks, -(used_poster_bonus_uah * 100))
+        # Списуємо баланс бонусів з самого акаунту Poster
+        if used_poster_bonus_uah > 0 and client_poster:
+            current_bonus_kopecks = int(client_poster.get('bonus', 0))
+            # Віднімаємо копійки
+            update_poster_bonus(client_poster['client_id'], current_bonus_kopecks, -(used_poster_bonus_uah * 100))
 
     if ADMIN_ID:
         try:

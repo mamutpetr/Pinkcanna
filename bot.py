@@ -68,17 +68,12 @@ def poster_request(endpoint, method="GET", data=None):
 def get_poster_client(phone_number):
     if not POSTER_TOKEN: return None
     phone = normalize_phone(phone_number)
-    
-    # Шукаємо без плюса (стандартно)
     res = poster_request("clients.getClients", "GET", {"phone": phone})
     if res and res.get("response"):
         return res["response"][0]
-        
-    # Резервний пошук з плюсом
     res_plus = poster_request("clients.getClients", "GET", {"phone": f"+{phone}"})
     if res and res_plus.get("response"):
         return res_plus["response"][0]
-        
     return None
 
 def add_poster_bonus(client_id, amount_uah):
@@ -86,11 +81,9 @@ def add_poster_bonus(client_id, amount_uah):
     if not POSTER_TOKEN: return
     payload = {
         "client_id": client_id,
-        "count": int(amount_uah * 100) # Множимо на 100, щоб отримати копійки
+        "count": int(amount_uah * 100) # Множимо на 100 (копійки)
     }
     res = poster_request("clients.changeClientBonus", "POST", payload)
-    if res and "error" in res:
-        print(f"❌ Помилка Poster API (оновлення бонусів): {res['error']}")
     return res
 
 def reward_referrer(referrer_id):
@@ -101,20 +94,14 @@ def reward_referrer(referrer_id):
         
     referrer_phone = referrer_data[0]
     client_poster = get_poster_client(referrer_phone)
-    
     if client_poster:
-        client_id = client_poster['client_id']
-        
-        # Нараховуємо 50 грн (функція сама переведе в копійки)
-        add_poster_bonus(client_id, 50)
-        
+        add_poster_bonus(client_poster['client_id'], 50)
         try:
             bot.send_message(referrer_id, "🎁 Ваш друг щойно завершив реєстрацію! Вам нараховано **50 бонусів** на рахунок у Poster!", parse_mode="Markdown")
-        except:
-            pass
+        except: pass
 
 def create_poster_client_full(user_id):
-    """Створення клієнта з усіма зібраними даними та перевірка рефералу"""
+    """Створення клієнта та перенос локальних бонусів у Poster"""
     if not POSTER_TOKEN: return None
     data = user_data_cache.get(user_id, {})
     phone = normalize_phone(data.get('phone', ''))
@@ -125,19 +112,39 @@ def create_poster_client_full(user_id):
         "client_sex": data.get('sex', 0),
         "birthday": data.get('birthday', ''),
         "email": data.get('email', ''),
-        "client_groups_id_client": 1, # ВАЖЛИВО: Група має бути бонусною в Poster!
+        "client_groups_id_client": 1,
         "bonus": 0
     }
 
     res = poster_request("clients.createClient", "POST", payload)
 
-    # Якщо створення пройшло успішно, перевіряємо, чи є реферал для нагороди
+    # Якщо створення пройшло успішно
     if res and "error" not in res:
         user_db = db_manage_user(user_id)
-        if user_db[2]: # referred_by
+        
+        # 1. Нагороджуємо того, хто запросив
+        if user_db[2]: 
             reward_referrer(user_db[2])
             
+        # 2. 🔥 ПЕРЕНОСИМО ТАПАЛКУ В POSTER 🔥
+        local_discount = user_db[1]
+        if local_discount > 0:
+            new_client = get_poster_client(phone)
+            if new_client:
+                add_poster_bonus(new_client['client_id'], local_discount)
+                db_manage_user(user_id, discount=0) # Обнуляємо в боті
+                try:
+                    bot.send_message(user_id, f"💸 Твої натапані **{local_discount} грн** успішно перенесені на бонусну карту Poster!", parse_mode="Markdown")
+                except: pass
+            
     return res
+
+def update_poster_bonus(client_id, current_bonus_kopecks, add_amount_kopecks):
+    """Застаріла функція (залишив для сумісності), краще використовувати add_poster_bonus"""
+    if not POSTER_TOKEN: return
+    new_bonus = int(current_bonus_kopecks) + int(add_amount_kopecks)
+    payload = {"client_id": client_id, "bonus": new_bonus}
+    poster_request("clients.setClient", "POST", payload)
 
 
 # --- БАЗА ДАНИХ ---
@@ -251,10 +258,7 @@ def db_manage_history(user_id, role=None, content=None):
 CATEGORIES = {"kanna": "🌿 Екстракти Канни", "cbd": "💧 Олії та Релакс", "wellness": "🧠 Сон та Енергія", "topical": "🧴 Вейпи та Догляд"}
 
 PRODUCTS = {
-    # ВЕЙП ОНОВЛЕНО НА ID 6 ЗГІДНО ЛОГІВ
     "vape": {"poster_id": 6, "name": "Вейп CBD", "price": 3000, "image": "blackvape.jpg", "category": "topical", "short": "Миттєвий релакс.", "info": "💨 **Vape:** Найшвидша доставка CBD в організм."},
-    
-    # ІНШІ ТОВАРИ ТРЕБА ОНОВИТИ ВІДПОВІДНО ДО Poster ID
     "kanna10x": {"poster_id": 0, "name": "Канна 10х", "price": 2500, "image": "kanna10x.jpg", "category": "kanna", "short": "Екстракт для настрою.", "info": "🌿 **Канна 10х:** Потужний SRI-ефект для ейфорії та зняття тривоги."},
     "crystal": {"poster_id": 0, "name": "Канна Crystal", "price": 3000, "image": "kannacrystal.jpg", "category": "kanna", "short": "Чистий ізолят.", "info": "💎 **Crystal:** 98% чистих алкалоїдів для ідеального фокусу."},
     "strong": {"poster_id": 0, "name": "Канна Strong", "price": 3000, "image": "kannastrong.jpg", "category": "kanna", "short": "Максимальна сила.", "info": "🔥 **Strong:** Найшвидша дія для досвідчених користувачів."},
@@ -342,7 +346,6 @@ def start(message):
     args = message.text.split()
     if len(args) > 1 and args[1].isdigit():
         referrer_id = int(args[1])
-        # Записуємо реферала, АЛЕ БОНУС НЕ ДАЄМО ПОКИ НЕ ЗАРЕЄСТРУЄТЬСЯ
         if referrer_id != user_id and user_data[2] is None: 
             with sqlite3.connect("pinkcanna.db") as conn:
                 c = conn.cursor()
@@ -366,7 +369,7 @@ def profile_cmd(message):
     phone = user_data[0] 
     
     if phone:
-        display_profile(message, phone, user_data[1])
+        display_profile(message, phone, user_data[1]) # Відобразить бонуси з Постера і залишок локальної тапалки (якщо є)
     else:
         user_data_cache[user_id] = {'step': 'register_phone'}
         bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nЩоб отримувати кешбек та знижки, поділіться своїм номером телефону.", reply_markup=contact_menu(), parse_mode="Markdown")
@@ -387,6 +390,14 @@ def handle_contact(message):
         if client_poster:
             db_manage_user(user_id, phone=phone)
             bot.send_message(user_id, "✅ Ваш профіль знайдено в базі Poster!", reply_markup=main_menu())
+            
+            # 🔥 Переносимо локальну тапалку в Poster (якщо знайшли профіль)
+            user_db = db_manage_user(user_id)
+            if user_db[1] > 0:
+                add_poster_bonus(client_poster['client_id'], user_db[1])
+                db_manage_user(user_id, discount=0)
+                bot.send_message(user_id, f"💸 Твої натапані **{user_db[1]} грн** автоматично перенесені на бонусну карту Poster!", parse_mode="Markdown")
+            
             display_profile(message, phone, db_manage_user(user_id)[1])
             del user_data_cache[user_id]
         else:
@@ -394,6 +405,13 @@ def handle_contact(message):
     else:
         # Пряме відправлення контакту без FSM
         db_manage_user(user_id, phone=phone)
+        client_poster = get_poster_client(phone)
+        if client_poster:
+            user_db = db_manage_user(user_id)
+            if user_db[1] > 0:
+                add_poster_bonus(client_poster['client_id'], user_db[1])
+                db_manage_user(user_id, discount=0)
+                bot.send_message(user_id, f"💸 Твої натапані **{user_db[1]} грн** автоматично перенесені на бонусну карту Poster!", parse_mode="Markdown")
         bot.send_message(user_id, "Номер збережено.", reply_markup=main_menu())
 
 def display_profile(message, phone, game_discount):
@@ -408,13 +426,17 @@ def display_profile(message, phone, game_discount):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🪪 Моя карта (QR для касира)", callback_data="show_qr"))
 
+    # Змінюємо вивід: показуємо загальний баланс Постера і нагадуємо, що тапалка йде туди
     text = (f"👤 **Твій кабінет Pink Canna**\n\n"
             f"🏷 Статус: *{group_name}*\n"
             f"📱 Телефон: `{phone}`\n\n"
-            f"💰 Бонуси Poster: **{int(poster_bonus)} грн**\n"
-            f"🍀 Знижка з тапалки: **{game_discount} грн**\n\n"
+            f"💰 Баланс Poster: **{int(poster_bonus)} грн**\n"
+            f"*(всі бонуси за друзів та ігри накопичуються тут)*\n\n"
             f"🔗 **Реферальна програма:**\n"
             f"Запрошуй друзів та отримуй **50 грн** на рахунок у Poster!\n")
+    
+    if game_discount > 0:
+        text += f"\n⚠️ У вас є **{game_discount} грн** знижки, яка чекає на перенесення в Poster."
     
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
     bot.send_message(user_id, f"`{ref_link}`", parse_mode="Markdown")
@@ -508,16 +530,33 @@ def item_actions(call):
         bot.send_message(call.message.chat.id, PRODUCTS[key]['info'], parse_mode="Markdown")
         send_product_card(call.message.chat.id, key)
 
-# --- ТАПАЛКА ---
+# --- 🔥 ТАПАЛКА: НОВА ЛОГІКА СИНХРОНІЗАЦІЇ 🔥 ---
 @bot.message_handler(content_types=['web_app_data'])
 def get_discount(message):
     try:
         match = re.search(r'\d+', message.web_app_data.data)
         if match:
             disc = int(match.group())
-            db_manage_user(message.chat.id, discount=disc)
-            bot.send_message(message.chat.id, f"🍀 Супер! Знижка **{disc} грн** збережена.", parse_mode="Markdown")
-    except: pass
+            user_id = message.chat.id
+            
+            # Перевіряємо, чи клієнт вже є в Poster
+            user_data = db_manage_user(user_id)
+            phone = user_data[0] if user_data else None
+            
+            if phone:
+                client_poster = get_poster_client(phone)
+                if client_poster:
+                    # Якщо є в постері — нараховуємо туди напряму!
+                    add_poster_bonus(client_poster['client_id'], disc)
+                    db_manage_user(user_id, discount=0) # Обнуляємо локально
+                    bot.send_message(user_id, f"🍀 Супер! **{disc} грн** успішно зараховано на твій бонусний рахунок у Poster!", parse_mode="Markdown")
+                    return
+            
+            # Якщо клієнт ще не поділився номером (нема в Poster) — зберігаємо локально
+            db_manage_user(user_id, discount=disc)
+            bot.send_message(user_id, f"🍀 Супер! Знижка **{disc} грн** збережена.\n\n⚠️ Обов'язково зареєструй **👤 Профіль**, щоб ці гроші перейшли в Poster і їх можна було використати на касі!", parse_mode="Markdown")
+    except Exception as e:
+        print("Помилка тапалки:", e)
 
 # --- КОШИК ТА ОФОРМЛЕННЯ ЗАМОВЛЕННЯ ---
 @bot.message_handler(func=lambda m: m.text == "🛒 Кошик")
@@ -536,14 +575,14 @@ def render_cart(chat_id, message_id=None):
     
     user_data = db_manage_user(chat_id)
     phone = user_data[0]
-    discount = user_data[1]
+    local_discount = user_data[1] # Якщо раптом є неперенесена тапалка
     
     poster_bonus = 0.0
     if phone:
         client_poster = get_poster_client(phone)
         if client_poster: poster_bonus = float(client_poster.get('bonus', 0)) / 100
 
-    total_benefit = discount + poster_bonus
+    total_benefit = local_discount + poster_bonus
     min_expiry_str = min([row[1] for row in raw_items])
     mins_left = max(1, int((datetime.strptime(min_expiry_str, "%Y-%m-%d %H:%M:%S") - datetime.now()).total_seconds() / 60))
 
@@ -608,20 +647,21 @@ def send_invoice(chat_id):
     
     user_data = db_manage_user(chat_id)
     phone = user_data[0]
-    discount = user_data[1]
+    local_discount = user_data[1]
     
     poster_bonus_uah = 0.0
     if phone:
         client_poster = get_poster_client(phone)
         if client_poster: poster_bonus_uah = float(client_poster.get('bonus', 0)) / 100
 
-    total_benefit = discount + poster_bonus_uah
-    used_poster_bonus_uah = min(poster_bonus_uah, total_price - discount - 1) if poster_bonus_uah > 0 else 0
+    total_benefit = local_discount + poster_bonus_uah
+    used_poster_bonus_uah = min(poster_bonus_uah, total_price - local_discount - 1) if poster_bonus_uah > 0 else 0
 
     if total_benefit > 0:
         prices.append(types.LabeledPrice("🎁 Знижка / Бонуси", -int((total_price - 1 if total_benefit >= total_price else total_benefit) * 100)))
     
-    payload = f"pay_{used_poster_bonus_uah}"
+    # Передаємо в payload: [списані_бонуси_постера]_[локальна_знижка]
+    payload = f"pay_{used_poster_bonus_uah}_{local_discount}"
     bot.send_invoice(chat_id, "Pink Canna", "Оплата замовлення", payload, PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=False)
 
 @bot.pre_checkout_query_handler(func=lambda q: True)
@@ -632,25 +672,23 @@ def success(message):
     bot.send_message(message.chat.id, "✅ Дякуємо за оплату! Замовлення передано в обробку.")
     
     user_id = message.chat.id
-    # Отримуємо товари ДО їх видалення з кошика
     purchased_items = [row[0] for row in db_get_cart_with_expiry(user_id)]
     original_price = sum(PRODUCTS[k]['price'] for k in purchased_items)
     paid_amount = message.successful_payment.total_amount / 100
     total_discount = original_price - paid_amount
 
-    # Видаляємо з кошика та анулюємо знижку з тапалки
+    # Видаляємо з кошика та анулюємо локальну знижку
     db_confirm_purchase(user_id)
     
     used_poster_bonus_uah = 0.0
-    payload = message.successful_payment.invoice_payload
-    if payload.startswith("pay_"):
-        try: used_poster_bonus_uah = float(payload.split("_")[1])
+    payload_parts = message.successful_payment.invoice_payload.split("_")
+    if len(payload_parts) >= 2:
+        try: used_poster_bonus_uah = float(payload_parts[1])
         except: pass
 
     user_data = db_manage_user(user_id)
     phone = user_data[0] if user_data else None
 
-    # Формуємо рядок адреси
     order_info = user_data_cache.get(user_id, {})
     if order_info.get('order_type') == 'delivery':
         address_str = f"Доставка: м. {order_info.get('city', '')}, вул. {order_info.get('street', '')}, {order_info.get('house', '')}"
@@ -659,21 +697,18 @@ def success(message):
 
     if phone:
         products_list = []
-        # Пропорційно розкидаємо знижку по товарах, щоб каса зійшлася копійка в копійку
         ratio = paid_amount / original_price if original_price > 0 else 1
         
         for k in set(purchased_items):
             count = purchased_items.count(k)
             poster_id = PRODUCTS[k].get("poster_id", 0)
             orig_price_uah = PRODUCTS[k]['price']
-            
-            # Вираховуємо фінальну ціну з урахуванням знижки
             final_price_uah = orig_price_uah * ratio
             
             products_list.append({
                 "product_id": poster_id,
                 "count": count,
-                "price": int(round(final_price_uah * 100)) # Відправляємо в копійках
+                "price": int(round(final_price_uah * 100))
             })
 
         order_data_poster = {
@@ -683,24 +718,20 @@ def success(message):
             "comment": f"[{address_str}] ❗️ОПЛАЧЕНО В TELEGRAM: {paid_amount} грн. (Знижка: {total_discount} грн)"
         }
         
-        # 🔥 ШУКАЄМО КЛІЄНТА ТА ПРИВ'ЯЗУЄМО ЙОГО ДО ЗАМОВЛЕННЯ 🔥
         client_poster = get_poster_client(phone)
         if client_poster:
             order_data_poster["client_id"] = client_poster["client_id"]
             
-        # Відправляємо замовлення
         res_order = poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
         
-        # Сигналізація помилок Poster
         if res_order and "error" in res_order:
             err_msg = res_order.get("error", "Невідома помилка")
             print(f"❌ ПОМИЛКА POSTER (Замовлення): {err_msg}")
-            if ADMIN_ID:
-                bot.send_message(ADMIN_ID, f"⚠️ УВАГА! Оплата пройшла, але Poster відхилив замовлення!\nПричина: {err_msg}")
+            if ADMIN_ID: bot.send_message(ADMIN_ID, f"⚠️ УВАГА! Оплата пройшла, але Poster відхилив замовлення!\nПричина: {err_msg}")
         elif res_order:
-            print("✅ Замовлення успішно залетіло в Poster з прив'язкою до клієнта та зміненою ціною!")
+            print("✅ Замовлення успішно залетіло в Poster!")
 
-        # Списуємо баланс бонусів з рахунку клієнта
+        # Списуємо тільки ту частину, яка була взята з бонусів Постера!
         if used_poster_bonus_uah > 0 and client_poster:
             add_poster_bonus(client_poster['client_id'], -used_poster_bonus_uah)
 
@@ -710,7 +741,6 @@ def success(message):
             bot.send_message(ADMIN_ID, f"🚨 **ЗАМОВЛЕННЯ ОПЛАЧЕНО!**\n👤 Клієнт: @{message.from_user.username}\n📍 {address_str}\n📦 Товари: {summary}\n💰 Сума: {paid_amount} UAH")
         except: pass
         
-    # Очищуємо кеш
     if user_id in user_data_cache:
         del user_data_cache[user_id]
 
@@ -817,12 +847,10 @@ def handle_all_text(message):
     user_id = message.chat.id
     text = message.text
 
-    # 1. ОБРОБКА FSM (Реєстрація та Доставка)
     if user_id in user_data_cache and 'step' in user_data_cache[user_id]:
         state = user_data_cache[user_id]
         step = state['step']
 
-        # --- Кроки реєстрації ---
         if step == 'register_name':
             state['name'] = text
             state['step'] = 'register_sex'
@@ -851,20 +879,17 @@ def handle_all_text(message):
             state['email'] = text if text != "Пропустити ➡️" else ""
             bot.send_message(user_id, "⏳ Зберігаємо дані...", reply_markup=types.ReplyKeyboardRemove())
             
-            # Зберігаємо телефон в БД бота та створюємо клієнта в Poster
             db_manage_user(user_id, phone=state['phone'])
             create_poster_client_full(user_id)
             
             bot.send_message(user_id, "🎉 Реєстрація успішна! Ваша карта створена.", reply_markup=main_menu())
             
-            # Очищуємо кеш, якщо це була тільки реєстрація
             if 'order_type' not in state:
                 del user_data_cache[user_id]
             else:
-                del state['step'] # Якщо реєстрація відбулась під час замовлення
+                del state['step']
             return
 
-        # --- Кроки доставки ---
         elif step == 'order_city':
             state['city'] = text
             state['step'] = 'order_street'
@@ -884,7 +909,6 @@ def handle_all_text(message):
             send_invoice(user_id)
             return
 
-    # 2. ОБРОБКА AI (Якщо не в FSM)
     if message.text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "📰 Новини", "🧮 Підбір дози CBD", "👤 Профіль"]: return
     if message.text == "📰 Новини": return bot.send_message(message.chat.id, "🌿 СБД легальний згідно з Постановою КМУ №324.")
     

@@ -4,23 +4,38 @@ import os
 import sqlite3
 import re
 import requests
+import time
+import logging
 
-# --- НАЛАШТУВАННЯ ---
+# --- LOGGING ---
+logging.basicConfig(
+    filename="bot.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
+# --- ENV ---
 TOKEN = os.getenv("BOT_TOKEN")
 POSTER_TOKEN = os.getenv("POSTER_TOKEN")
 POSTER_API_URL = "https://joinposter.com/api"
 
+if not TOKEN:
+    raise Exception("❌ BOT_TOKEN не заданий")
+
+if not POSTER_TOKEN:
+    raise Exception("❌ POSTER_TOKEN не заданий")
+
 bot = telebot.TeleBot(TOKEN)
 
-# --- БАЗА ДАНИХ ---
+# --- DB ---
 def init_db():
     with sqlite3.connect("pink_fix.db") as conn:
-        conn.execute('''
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 phone TEXT
             )
-        ''')
+        """)
 
 def db_manage_user(user_id, phone=None):
     with sqlite3.connect("pink_fix.db") as conn:
@@ -31,7 +46,7 @@ def db_manage_user(user_id, phone=None):
         conn.commit()
         return c.execute("SELECT phone FROM users WHERE user_id = ?", (user_id,)).fetchone()
 
-# --- УТИЛІТИ ---
+# --- UTILS ---
 def normalize_phone(phone):
     clean = re.sub(r'\D', '', phone)
 
@@ -39,78 +54,77 @@ def normalize_phone(phone):
         return clean
     elif clean.startswith("0"):
         return "380" + clean[1:]
-    elif clean.startswith("80"):
-        return "3" + clean
     return clean
 
-# --- POSTER API ---
-def get_client_group():
-    try:
-        res = requests.get(
-            f"{POSTER_API_URL}/clients.getGroups",
-            params={"token": POSTER_TOKEN},
-            timeout=10
-        ).json()
+# --- POSTER API CORE ---
+def poster_request(endpoint, method="GET", data=None, retries=3):
+    url = f"{POSTER_API_URL}/{endpoint}"
 
-        if res.get("response"):
-            return res["response"][0]["client_groups_id_client"]
-    except Exception as e:
-        print("Group error:", e)
+    for attempt in range(retries):
+        try:
+            if method == "GET":
+                res = requests.get(url, params=data, timeout=10)
+            else:
+                res = requests.post(url, data=data, timeout=10)
 
-    return 1
+            if res.status_code != 200:
+                logging.error(f"HTTP {res.status_code}: {res.text}")
+                time.sleep(1)
+                continue
 
+            return res.json()
 
-def create_poster_client(phone_number, name, chat_id):
-    if not POSTER_TOKEN:
-        bot.send_message(chat_id, "❌ POSTER_TOKEN відсутній")
-        return
+        except Exception as e:
+            logging.error(f"Request error: {e}")
+            time.sleep(1)
 
-    phone = normalize_phone(phone_number)
-    group_id = get_client_group()
+    return None
+
+# --- HEALTH CHECK ---
+def check_poster():
+    res = poster_request("clients.getGroups", "GET", {"token": POSTER_TOKEN})
+
+    if not res:
+        return False
+
+    if "error" in res:
+        logging.error(f"Poster error: {res}")
+        return False
+
+    return True
+
+# --- CLIENT CREATE ---
+def create_poster_client(phone, name, chat_id):
+    phone = normalize_phone(phone)
 
     payload = {
         "token": POSTER_TOKEN,
         "client_name": name or "Telegram Client",
         "phone": phone,
-        "client_groups_id_client": group_id,
         "client_sex": 0
     }
 
-    try:
-        response = requests.post(
-            f"{POSTER_API_URL}/clients.setClient",
-            data=payload,
-            timeout=10
-        )
+    res = poster_request("clients.setClient", "POST", payload)
 
-        if response.status_code != 200:
-            bot.send_message(chat_id, f"❌ HTTP {response.status_code}\n{response.text}")
-            return
+    if not res:
+        bot.send_message(chat_id, "❌ Poster не відповідає")
+        return
 
-        res = response.json()
+    logging.info(f"Poster response: {res}")
 
-        print("Poster response:", res)
+    if "error" in res:
+        code = res["error"]
 
-        # --- ОБРОБКА ---
-        if "error" in res:
-            error_code = res["error"]
+        if code == 34:
+            bot.send_message(chat_id, "✅ Ви вже є в системі")
+            return True
 
-            if error_code == 34:
-                bot.send_message(chat_id, "✅ Ви вже є в системі")
-                return True
+        bot.send_message(chat_id, f"⚠️ Poster error: {code}")
+        return
 
-            bot.send_message(chat_id, f"⚠️ Poster error: {error_code}")
-            return
+    bot.send_message(chat_id, "✅ Реєстрація успішна!")
 
-        bot.send_message(chat_id, "✅ Реєстрація успішна!")
-        return res.get("response")
-
-    except requests.exceptions.Timeout:
-        bot.send_message(chat_id, "⏱ Таймаут запиту до Poster")
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ Помилка: {e}")
-
-# --- ХЕНДЛЕРИ ---
+# --- HANDLERS ---
 @bot.message_handler(commands=['start'])
 def start(message):
     db_manage_user(message.chat.id)
@@ -118,19 +132,19 @@ def start(message):
     m = types.ReplyKeyboardMarkup(resize_keyboard=True)
     m.add(types.KeyboardButton("👤 Мій профіль"))
 
-    bot.send_message(
-        message.chat.id,
-        "Вітаємо! Натисніть кнопку нижче 👇",
-        reply_markup=m
-    )
+    bot.send_message(message.chat.id, "🚀 Бот працює", reply_markup=m)
+
+@bot.message_handler(commands=['health'])
+def health(message):
+    if check_poster():
+        bot.send_message(message.chat.id, "🟢 Poster OK")
+    else:
+        bot.send_message(message.chat.id, "🔴 Poster DOWN")
 
 @bot.message_handler(commands=['reset'])
 def reset(message):
     with sqlite3.connect("pink_fix.db") as conn:
-        conn.execute(
-            "UPDATE users SET phone = NULL WHERE user_id = ?",
-            (message.chat.id,)
-        )
+        conn.execute("UPDATE users SET phone = NULL WHERE user_id = ?", (message.chat.id,))
 
     bot.send_message(message.chat.id, "♻️ Дані очищено")
 
@@ -142,27 +156,27 @@ def profile(message):
         m = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         m.add(types.KeyboardButton("📱 Поділитися контактом", request_contact=True))
 
-        bot.send_message(
-            message.chat.id,
-            "📲 Надішліть номер телефону",
-            reply_markup=m
-        )
+        bot.send_message(message.chat.id, "📲 Надішліть номер", reply_markup=m)
         return
 
-    bot.send_message(message.chat.id, "🔍 Перевіряю в Poster...")
     create_poster_client(user[0], message.from_user.first_name, message.chat.id)
 
 @bot.message_handler(content_types=['contact'])
-def handle_contact(message):
+def contact(message):
     phone = message.contact.phone_number
 
-    db_manage_user(message.chat.id, phone=phone)
-
-    bot.send_message(message.chat.id, "📥 Номер отримано")
+    db_manage_user(message.chat.id, phone)
     create_poster_client(phone, message.from_user.first_name, message.chat.id)
 
-# --- ЗАПУСК ---
+# --- STARTUP ---
 if __name__ == "__main__":
     init_db()
-    print("Бот працює...")
+
+    print("🚀 Запуск бота...")
+
+    if not check_poster():
+        print("❌ Poster API недоступний або токен неправильний")
+    else:
+        print("✅ Poster OK")
+
     bot.infinity_polling()

@@ -3,12 +3,15 @@ from telebot import types
 import os
 import sqlite3
 import re
-import qrcode
 import requests
 from io import BytesIO
 from datetime import datetime, timedelta
 from openai import OpenAI
 import time
+
+# --- НОВІ ІМПОРТИ ДЛЯ ШТРИХ-КОДУ ---
+import barcode
+from barcode.writer import ImageWriter
 
 # --- НАЛАШТУВАННЯ ---
 TOKEN = os.getenv("BOT_TOKEN")
@@ -109,6 +112,7 @@ def create_poster_client_full(user_id):
     payload = {
         "client_name": data.get('name', 'Клієнт Telegram'),
         "phone": phone,
+        "card_number": phone, # 🔥 ОСЬ ТУТ ДУБЛЮЄТЬСЯ НОМЕР ДЛЯ ШТРИХ-КОДУ 🔥
         "client_sex": data.get('sex', 0),
         "birthday": data.get('birthday', ''),
         "email": data.get('email', ''),
@@ -313,13 +317,13 @@ def send_product_card(chat_id, key):
         else: bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="Markdown")
     except: bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="Markdown")
 
-def generate_customer_qr(phone_number):
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(phone_number) 
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+# --- ГЕНЕРАЦІЯ ШТРИХ-КОДУ ДЛЯ КАСИ ---
+def generate_customer_barcode(phone_number):
+    code128 = barcode.get_barcode_class('code128')
+    bar = code128(phone_number, writer=ImageWriter())
     bio = BytesIO()
-    img.save(bio, 'PNG')
+    # module_width робить лінії чіткішими для екрана смартфона
+    bar.write(bio, options={"write_text": True, "module_width": 0.3})
     bio.seek(0)
     return bio
 
@@ -369,7 +373,7 @@ def profile_cmd(message):
     phone = user_data[0] 
     
     if phone:
-        display_profile(message, phone, user_data[1]) # Відобразить бонуси з Постера і залишок локальної тапалки (якщо є)
+        display_profile(message, phone, user_data[1]) 
     else:
         user_data_cache[user_id] = {'step': 'register_phone'}
         bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nЩоб отримувати кешбек та знижки, поділіться своїм номером телефону.", reply_markup=contact_menu(), parse_mode="Markdown")
@@ -380,18 +384,15 @@ def handle_contact(message):
     phone = message.contact.phone_number
     if not phone.startswith('+'): phone = '+' + phone
     
-    # Якщо клієнт натиснув кнопку під час реєстрації
     if user_id in user_data_cache and user_data_cache[user_id].get('step') == 'register_phone':
         user_data_cache[user_id]['phone'] = phone
         user_data_cache[user_id]['step'] = 'register_name'
         
-        # Перевіримо, можливо він вже є в Poster
         client_poster = get_poster_client(phone)
         if client_poster:
             db_manage_user(user_id, phone=phone)
             bot.send_message(user_id, "✅ Ваш профіль знайдено в базі Poster!", reply_markup=main_menu())
             
-            # 🔥 Переносимо локальну тапалку в Poster (якщо знайшли профіль)
             user_db = db_manage_user(user_id)
             if user_db[1] > 0:
                 add_poster_bonus(client_poster['client_id'], user_db[1])
@@ -403,7 +404,6 @@ def handle_contact(message):
         else:
             bot.send_message(user_id, "Введіть ваше ПІБ (Прізвище та Ім'я):", reply_markup=types.ReplyKeyboardRemove())
     else:
-        # Пряме відправлення контакту без FSM
         db_manage_user(user_id, phone=phone)
         client_poster = get_poster_client(phone)
         if client_poster:
@@ -424,9 +424,8 @@ def display_profile(message, phone, game_discount):
     group_name = client_poster.get('group_name', 'Постійний клієнт') if client_poster else 'Новий клієнт'
     
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🪪 Моя карта (QR для касира)", callback_data="show_qr"))
+    markup.add(types.InlineKeyboardButton("🪪 Моя карта (Штрих-код на касу)", callback_data="show_qr"))
 
-    # Змінюємо вивід: показуємо загальний баланс Постера і нагадуємо, що тапалка йде туди
     text = (f"👤 **Твій кабінет Pink Canna**\n\n"
             f"🏷 Статус: *{group_name}*\n"
             f"📱 Телефон: `{phone}`\n\n"
@@ -452,9 +451,9 @@ def show_qr_callback(call):
     client_poster = get_poster_client(phone)
     poster_bonus = float(client_poster.get('bonus', 0)) / 100 if client_poster else 0.0
 
-    qr = generate_customer_qr(phone) 
-    caption = f"🪪 **Цифрова карта Poster**\n💰 Баланс: **{int(poster_bonus)} грн**\n\nПокажіть цей код касиру."
-    bot.send_photo(user_id, qr, caption=caption, parse_mode="Markdown")
+    img_barcode = generate_customer_barcode(phone) 
+    caption = f"🪪 **Цифрова карта Poster**\n💰 Баланс: **{int(poster_bonus)} грн**\n\nПокажіть цей штрих-код касиру."
+    bot.send_photo(user_id, img_barcode, caption=caption, parse_mode="Markdown")
 
 # --- КАЛЬКУЛЯТОР ДОЗИ ---
 @bot.message_handler(func=lambda m: m.text == "🧮 Підбір дози CBD")
@@ -530,7 +529,7 @@ def item_actions(call):
         bot.send_message(call.message.chat.id, PRODUCTS[key]['info'], parse_mode="Markdown")
         send_product_card(call.message.chat.id, key)
 
-# --- 🔥 ТАПАЛКА: НОВА ЛОГІКА СИНХРОНІЗАЦІЇ 🔥 ---
+# --- ТАПАЛКА ---
 @bot.message_handler(content_types=['web_app_data'])
 def get_discount(message):
     try:
@@ -539,20 +538,17 @@ def get_discount(message):
             disc = int(match.group())
             user_id = message.chat.id
             
-            # Перевіряємо, чи клієнт вже є в Poster
             user_data = db_manage_user(user_id)
             phone = user_data[0] if user_data else None
             
             if phone:
                 client_poster = get_poster_client(phone)
                 if client_poster:
-                    # Якщо є в постері — нараховуємо туди напряму!
                     add_poster_bonus(client_poster['client_id'], disc)
-                    db_manage_user(user_id, discount=0) # Обнуляємо локально
+                    db_manage_user(user_id, discount=0)
                     bot.send_message(user_id, f"🍀 Супер! **{disc} грн** успішно зараховано на твій бонусний рахунок у Poster!", parse_mode="Markdown")
                     return
             
-            # Якщо клієнт ще не поділився номером (нема в Poster) — зберігаємо локально
             db_manage_user(user_id, discount=disc)
             bot.send_message(user_id, f"🍀 Супер! Знижка **{disc} грн** збережена.\n\n⚠️ Обов'язково зареєструй **👤 Профіль**, щоб ці гроші перейшли в Poster і їх можна було використати на касі!", parse_mode="Markdown")
     except Exception as e:
@@ -575,7 +571,7 @@ def render_cart(chat_id, message_id=None):
     
     user_data = db_manage_user(chat_id)
     phone = user_data[0]
-    local_discount = user_data[1] # Якщо раптом є неперенесена тапалка
+    local_discount = user_data[1] 
     
     poster_bonus = 0.0
     if phone:
@@ -660,7 +656,6 @@ def send_invoice(chat_id):
     if total_benefit > 0:
         prices.append(types.LabeledPrice("🎁 Знижка / Бонуси", -int((total_price - 1 if total_benefit >= total_price else total_benefit) * 100)))
     
-    # Передаємо в payload: [списані_бонуси_постера]_[локальна_знижка]
     payload = f"pay_{used_poster_bonus_uah}_{local_discount}"
     bot.send_invoice(chat_id, "Pink Canna", "Оплата замовлення", payload, PAYMENT_TOKEN, "UAH", prices, need_phone_number=True, need_shipping_address=False)
 
@@ -677,7 +672,6 @@ def success(message):
     paid_amount = message.successful_payment.total_amount / 100
     total_discount = original_price - paid_amount
 
-    # Видаляємо з кошика та анулюємо локальну знижку
     db_confirm_purchase(user_id)
     
     used_poster_bonus_uah = 0.0
@@ -731,7 +725,6 @@ def success(message):
         elif res_order:
             print("✅ Замовлення успішно залетіло в Poster!")
 
-        # Списуємо тільки ту частину, яка була взята з бонусів Постера!
         if used_poster_bonus_uah > 0 and client_poster:
             add_poster_bonus(client_poster['client_id'], -used_poster_bonus_uah)
 

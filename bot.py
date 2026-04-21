@@ -56,23 +56,30 @@ def normalize_phone(phone):
         return "380" + clean[1:]
     return clean
 
-# --- POSTER API CORE ---
+# --- POSTER CORE (FIXED) ---
 def poster_request(endpoint, method="GET", data=None, retries=3):
     url = f"{POSTER_API_URL}/{endpoint}"
+
+    if not data:
+        data = {}
+
+    params = {"token": POSTER_TOKEN}  # 🔥 критично
 
     for attempt in range(retries):
         try:
             if method == "GET":
-                res = requests.get(url, params=data, timeout=10)
+                res = requests.get(url, params={**params, **data}, timeout=10)
             else:
-                res = requests.post(url, data=data, timeout=10)
+                res = requests.post(url, params=params, data=data, timeout=10)
 
             if res.status_code != 200:
                 logging.error(f"HTTP {res.status_code}: {res.text}")
                 time.sleep(1)
                 continue
 
-            return res.json()
+            json_res = res.json()
+            logging.info(f"{endpoint} RESPONSE: {json_res}")
+            return json_res
 
         except Exception as e:
             logging.error(f"Request error: {e}")
@@ -80,25 +87,11 @@ def poster_request(endpoint, method="GET", data=None, retries=3):
 
     return None
 
-# --- HEALTH CHECK ---
-def check_poster():
-    res = poster_request("clients.getGroups", "GET", {"token": POSTER_TOKEN})
-
-    if not res:
-        return False
-
-    if "error" in res:
-        logging.error(f"Poster error: {res}")
-        return False
-
-    return True
-
 # --- CLIENT CREATE ---
 def create_poster_client(phone, name, chat_id):
     phone = normalize_phone(phone)
 
     payload = {
-        "token": POSTER_TOKEN,
         "client_name": name or "Telegram Client",
         "phone": phone,
         "client_sex": 0
@@ -110,16 +103,15 @@ def create_poster_client(phone, name, chat_id):
         bot.send_message(chat_id, "❌ Poster не відповідає")
         return
 
-    logging.info(f"Poster response: {res}")
-
     if "error" in res:
-        code = res["error"]
+        code = res["error"]["code"]
+        message = res["error"].get("message", "")
 
         if code == 34:
             bot.send_message(chat_id, "✅ Ви вже є в системі")
             return True
 
-        bot.send_message(chat_id, f"⚠️ Poster error: {code}")
+        bot.send_message(chat_id, f"⚠️ Poster error {code}: {message}")
         return
 
     bot.send_message(chat_id, "✅ Реєстрація успішна!")
@@ -136,7 +128,9 @@ def start(message):
 
 @bot.message_handler(commands=['health'])
 def health(message):
-    if check_poster():
+    res = poster_request("clients.getGroups", "GET")
+
+    if res and "error" not in res:
         bot.send_message(message.chat.id, "🟢 Poster OK")
     else:
         bot.send_message(message.chat.id, "🔴 Poster DOWN")
@@ -166,17 +160,12 @@ def contact(message):
     phone = message.contact.phone_number
 
     db_manage_user(message.chat.id, phone)
+    bot.send_message(message.chat.id, "📥 Номер отримано")
+
     create_poster_client(phone, message.from_user.first_name, message.chat.id)
 
-# --- STARTUP ---
+# --- START ---
 if __name__ == "__main__":
     init_db()
-
-    print("🚀 Запуск бота...")
-
-    if not check_poster():
-        print("❌ Poster API недоступний або токен неправильний")
-    else:
-        print("✅ Poster OK")
-
+    print("🚀 Бот запущений")
     bot.infinity_polling()

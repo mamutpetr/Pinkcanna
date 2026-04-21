@@ -905,3 +905,4 @@ def handle_all_text(message):
 if __name__ == "__main__":
     init_db()
     bot.infinity_polling()
+

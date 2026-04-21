@@ -21,6 +21,9 @@ WEB_APP_URL = "https://mamutpetr.github.io/Pinkcanna/"
 POSTER_TOKEN = os.getenv("POSTER_TOKEN")
 POSTER_API_URL = "https://joinposter.com/api"
 
+# ID твого закладу в Poster
+SPOT_ID = 1 
+
 if not TOKEN:
     raise Exception("❌ BOT_TOKEN не заданий")
 if not POSTER_TOKEN:
@@ -79,7 +82,7 @@ def get_poster_client(phone_number):
     return None
 
 def reward_referrer(referrer_id):
-    """Нараховує 50 грн (5000 копійок) рефералу в Poster"""
+    """Офіційне нарахування 50 бонусів рефералу в Poster через changeClientBonus"""
     referrer_data = db_manage_user(referrer_id)
     if not referrer_data or not referrer_data[0]:
         return
@@ -89,18 +92,20 @@ def reward_referrer(referrer_id):
     
     if client_poster:
         client_id = client_poster['client_id']
-        current_bonus_kopecks = int(client_poster.get('bonus', 0)) 
         
-        # Додаємо 5000 копійок (50 грн)
-        update_poster_bonus(client_id, current_bonus_kopecks, 5000)
+        # Використовуємо офіційний метод нарахування бонусів (50 балів)
+        poster_request("clients.changeClientBonus", "POST", {
+            "client_id": client_id,
+            "count": 50
+        })
         
         try:
-            bot.send_message(referrer_id, "🎁 Твій друг щойно зареєструвався! +50 грн нараховано на твій рахунок у Poster!")
+            bot.send_message(referrer_id, "🎁 Ваш друг щойно завершив реєстрацію! Вам нараховано **50 бонусів** на рахунок у Poster!", parse_mode="Markdown")
         except:
             pass
 
 def create_poster_client_full(user_id):
-    """Створення клієнта з усіма зібраними даними"""
+    """Створення клієнта з усіма зібраними даними та перевірка рефералу"""
     if not POSTER_TOKEN: return None
     data = user_data_cache.get(user_id, {})
     phone = normalize_phone(data.get('phone', ''))
@@ -117,8 +122,8 @@ def create_poster_client_full(user_id):
 
     res = poster_request("clients.createClient", "POST", payload)
 
+    # Якщо створення пройшло успішно, перевіряємо, чи є реферал для нагороди
     if res and "error" not in res:
-        # Успішно створено. Тепер перевіряємо, чи є реферал, щоб дати йому бонус
         user_db = db_manage_user(user_id)
         if user_db[2]: # referred_by
             reward_referrer(user_db[2])
@@ -126,6 +131,7 @@ def create_poster_client_full(user_id):
     return res
 
 def update_poster_bonus(client_id, current_bonus_kopecks, add_amount_kopecks):
+    """Оновлення балансу (списання) через setClient"""
     if not POSTER_TOKEN: return
     new_bonus = int(current_bonus_kopecks) + int(add_amount_kopecks)
     payload = {
@@ -656,7 +662,7 @@ def success(message):
             products_list.append({"product_id": poster_id, "count": count})
 
         order_data_poster = {
-            "spot_id": 1,
+            "spot_id": SPOT_ID,
             "phone": phone,
             "products": products_list,
             "comment": f"[{address_str}] Оплачено в Telegram. Загальна знижка: {total_discount} грн."
@@ -677,7 +683,7 @@ def success(message):
         # Відправляємо замовлення
         res_order = poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
         
-        # Сигналізація помилок Poster (допоможе вам знайти проблему з ID товарів/закладів)
+        # Сигналізація помилок Poster
         if res_order and "error" in res_order:
             err_msg = res_order.get("error", "Невідома помилка")
             print(f"❌ ПОМИЛКА POSTER (Замовлення): {err_msg}")
@@ -686,7 +692,7 @@ def success(message):
         elif res_order:
             print("✅ Замовлення успішно залетіло в Poster з прив'язкою до клієнта!")
 
-        # Списуємо баланс бонусів з самого акаунту Poster
+        # Списуємо баланс бонусів
         if used_poster_bonus_uah > 0 and client_poster:
             current_bonus_kopecks = int(client_poster.get('bonus', 0))
             # Віднімаємо копійки

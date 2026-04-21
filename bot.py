@@ -81,8 +81,20 @@ def get_poster_client(phone_number):
         
     return None
 
+def add_poster_bonus(client_id, amount_uah):
+    """Нарахування або списання бонусів через changeClientBonus. Poster приймає копійки!"""
+    if not POSTER_TOKEN: return
+    payload = {
+        "client_id": client_id,
+        "count": int(amount_uah * 100) # Множимо на 100, щоб отримати копійки
+    }
+    res = poster_request("clients.changeClientBonus", "POST", payload)
+    if res and "error" in res:
+        print(f"❌ Помилка Poster API (оновлення бонусів): {res['error']}")
+    return res
+
 def reward_referrer(referrer_id):
-    """Офіційне нарахування 50 бонусів рефералу в Poster через changeClientBonus"""
+    """Офіційне нарахування 50 бонусів рефералу в Poster"""
     referrer_data = db_manage_user(referrer_id)
     if not referrer_data or not referrer_data[0]:
         return
@@ -93,11 +105,8 @@ def reward_referrer(referrer_id):
     if client_poster:
         client_id = client_poster['client_id']
         
-        # Використовуємо офіційний метод нарахування бонусів (50 балів)
-        poster_request("clients.changeClientBonus", "POST", {
-            "client_id": client_id,
-            "count": 50
-        })
+        # Нараховуємо 50 грн (функція сама переведе в копійки)
+        add_poster_bonus(client_id, 50)
         
         try:
             bot.send_message(referrer_id, "🎁 Ваш друг щойно завершив реєстрацію! Вам нараховано **50 бонусів** на рахунок у Poster!", parse_mode="Markdown")
@@ -116,7 +125,7 @@ def create_poster_client_full(user_id):
         "client_sex": data.get('sex', 0),
         "birthday": data.get('birthday', ''),
         "email": data.get('email', ''),
-        "client_groups_id_client": 1,
+        "client_groups_id_client": 1, # ВАЖЛИВО: Група має бути бонусною в Poster!
         "bonus": 0
     }
 
@@ -130,15 +139,6 @@ def create_poster_client_full(user_id):
             
     return res
 
-def update_poster_bonus(client_id, current_bonus_kopecks, add_amount_kopecks):
-    """Оновлення балансу (списання) через setClient"""
-    if not POSTER_TOKEN: return
-    new_bonus = int(current_bonus_kopecks) + int(add_amount_kopecks)
-    payload = {
-        "client_id": client_id,
-        "bonus": new_bonus
-    }
-    poster_request("clients.setClient", "POST", payload)
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -247,7 +247,7 @@ def db_manage_history(user_id, role=None, content=None):
         c.execute("SELECT role, content FROM ai_history WHERE user_id = ? ORDER BY rowid ASC", (user_id,))
         return [{"role": row[0], "content": row[1]} for row in c.fetchall()]
 
-# --- ТОВАРИ (ВАЖЛИВО: ОНОВІТЬ poster_id ДЛЯ КОЖНОГО ТОВАРУ) ---
+# --- ТОВАРИ ---
 CATEGORIES = {"kanna": "🌿 Екстракти Канни", "cbd": "💧 Олії та Релакс", "wellness": "🧠 Сон та Енергія", "topical": "🧴 Вейпи та Догляд"}
 
 PRODUCTS = {
@@ -638,7 +638,7 @@ def success(message):
     paid_amount = message.successful_payment.total_amount / 100
     total_discount = original_price - paid_amount
 
-    # Видаляємо з кошика та анулюємо знижку
+    # Видаляємо з кошика та анулюємо знижку з тапалки
     db_confirm_purchase(user_id)
     
     used_poster_bonus_uah = 0.0
@@ -659,29 +659,34 @@ def success(message):
 
     if phone:
         products_list = []
+        # Пропорційно розкидаємо знижку по товарах, щоб каса зійшлася копійка в копійку
+        ratio = paid_amount / original_price if original_price > 0 else 1
+        
         for k in set(purchased_items):
             count = purchased_items.count(k)
             poster_id = PRODUCTS[k].get("poster_id", 0)
-            products_list.append({"product_id": poster_id, "count": count})
+            orig_price_uah = PRODUCTS[k]['price']
+            
+            # Вираховуємо фінальну ціну з урахуванням знижки
+            final_price_uah = orig_price_uah * ratio
+            
+            products_list.append({
+                "product_id": poster_id,
+                "count": count,
+                "price": int(round(final_price_uah * 100)) # Відправляємо в копійках
+            })
 
         order_data_poster = {
             "spot_id": SPOT_ID,
             "phone": phone,
             "products": products_list,
-            "comment": f"[{address_str}] Оплачено в Telegram. Загальна знижка: {total_discount} грн."
+            "comment": f"[{address_str}] ❗️ОПЛАЧЕНО В TELEGRAM: {paid_amount} грн. (Знижка: {total_discount} грн)"
         }
         
         # 🔥 ШУКАЄМО КЛІЄНТА ТА ПРИВ'ЯЗУЄМО ЙОГО ДО ЗАМОВЛЕННЯ 🔥
         client_poster = get_poster_client(phone)
         if client_poster:
             order_data_poster["client_id"] = client_poster["client_id"]
-        
-        if total_discount > 0:
-            order_data_poster["promotion"] = [{
-                "name": "Знижка з Telegram",
-                "type": "sum",
-                "value": total_discount
-            }]
             
         # Відправляємо замовлення
         res_order = poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
@@ -693,13 +698,11 @@ def success(message):
             if ADMIN_ID:
                 bot.send_message(ADMIN_ID, f"⚠️ УВАГА! Оплата пройшла, але Poster відхилив замовлення!\nПричина: {err_msg}")
         elif res_order:
-            print("✅ Замовлення успішно залетіло в Poster з прив'язкою до клієнта!")
+            print("✅ Замовлення успішно залетіло в Poster з прив'язкою до клієнта та зміненою ціною!")
 
-        # Списуємо баланс бонусів
+        # Списуємо баланс бонусів з рахунку клієнта
         if used_poster_bonus_uah > 0 and client_poster:
-            current_bonus_kopecks = int(client_poster.get('bonus', 0))
-            # Віднімаємо копійки
-            update_poster_bonus(client_poster['client_id'], current_bonus_kopecks, -(used_poster_bonus_uah * 100))
+            add_poster_bonus(client_poster['client_id'], -used_poster_bonus_uah)
 
     if ADMIN_ID:
         try:
@@ -753,7 +756,7 @@ def process_admin_deduct(message, client_id, phone):
                 bot.send_message(message.chat.id, f"❌ Помилка: У клієнта лише {current_bonus_uah} бонусів!")
                 return
 
-            update_poster_bonus(client_id, current_bonus_kopecks, -(amount_uah * 100))
+            add_poster_bonus(client_id, -amount_uah)
             bot.send_message(message.chat.id, f"✅ Успішно списано {amount_uah} бонусів. Новий баланс: {current_bonus_uah - amount_uah} грн.")
             
             with sqlite3.connect("pinkcanna.db") as conn:

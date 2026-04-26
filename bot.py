@@ -168,12 +168,19 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS inventory 
                      (product_key TEXT PRIMARY KEY, total_qty INTEGER DEFAULT 0)''')
         c.execute('''CREATE TABLE IF NOT EXISTS orders 
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, items TEXT, total REAL, created_at DATETIME)''')
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, items TEXT, total REAL, poster_order_id INTEGER, status TEXT DEFAULT 'active', product_keys TEXT, created_at DATETIME)''')
         
         try: c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
         except: pass
-        
         try: c.execute("ALTER TABLE users ADD COLUMN has_purchased INTEGER DEFAULT 0")
+        except: pass
+        
+        # Міграція для таблиці orders (на випадок якщо вона вже існує без нових колонок)
+        try: c.execute("ALTER TABLE orders ADD COLUMN poster_order_id INTEGER")
+        except: pass
+        try: c.execute("ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'active'")
+        except: pass
+        try: c.execute("ALTER TABLE orders ADD COLUMN product_keys TEXT")
         except: pass
 
         for key in PRODUCTS.keys():
@@ -234,8 +241,9 @@ def db_clear_cart(user_id):
         c.execute("DELETE FROM carts_v2 WHERE user_id = ?", (user_id,))
         conn.commit()
 
-def db_confirm_purchase(user_id, summary_text, total_price):
+def db_confirm_purchase(user_id, summary_text, total_price, poster_order_id=None):
     items = [row[0] for row in db_get_cart_with_expiry(user_id)]
+    keys_str = ",".join(items)
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
         for key in items:
@@ -243,10 +251,9 @@ def db_confirm_purchase(user_id, summary_text, total_price):
         c.execute("DELETE FROM carts_v2 WHERE user_id = ?", (user_id,))
         c.execute("UPDATE users SET discount = 0 WHERE user_id = ?", (user_id,))
         
-        # Додаємо запис в історію замовлень
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        c.execute("INSERT INTO orders (user_id, items, total, created_at) VALUES (?, ?, ?, ?)", 
-                  (user_id, summary_text, total_price, now_str))
+        c.execute("INSERT INTO orders (user_id, items, total, poster_order_id, status, product_keys, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)", 
+                  (user_id, summary_text, total_price, poster_order_id, keys_str, now_str))
         conn.commit()
     return items
 
@@ -469,18 +476,76 @@ def show_order_history(call):
     bot.answer_callback_query(call.id)
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
-        c.execute("SELECT items, total, created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 5", (call.message.chat.id,))
+        c.execute("SELECT id, items, total, created_at, status FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 5", (call.message.chat.id,))
         orders = c.fetchall()
         
     if not orders:
-        bot.send_message(call.message.chat.id, "🛒 У вас ще немає завершених замовлень.")
+        bot.send_message(call.message.chat.id, "🛒 У вас ще немає замовлень.")
         return
         
-    text = "📜 **Ваші останні замовлення:**\n\n"
-    for idx, o in enumerate(orders, 1):
-        text += f"📅 **{o[2]}**\n📦 {o[0]}\n💰 Сума: **{o[1]} грн**\n\n"
+    bot.send_message(call.message.chat.id, "📜 **Ваші останні замовлення:**", parse_mode="Markdown")
+    
+    for o in orders:
+        order_id, items, total, created_at, status = o
+        text = f"📅 **{created_at}**\n📦 {items}\n💰 Сума: **{total} грн**\n"
         
-    bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+        m = types.InlineKeyboardMarkup()
+        if status == 'active':
+            text += "🟢 Статус: **Активне** (бронь)"
+            m.add(types.InlineKeyboardButton("❌ Скасувати замовлення", callback_data=f"cancel_order_{order_id}"))
+        else:
+            text += "🔴 Статус: **Скасоване**"
+            
+        bot.send_message(call.message.chat.id, text, reply_markup=m if status == 'active' else None, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cancel_order_"))
+def cancel_order_handler(call):
+    order_id = call.data.split("_")[2]
+    user_id = call.message.chat.id
+    
+    with sqlite3.connect("pinkcanna.db") as conn:
+        c = conn.cursor()
+        c.execute("SELECT poster_order_id, status, product_keys FROM orders WHERE id = ? AND user_id = ?", (order_id, user_id))
+        order = c.fetchone()
+        
+    if not order:
+        return bot.answer_callback_query(call.id, "❌ Замовлення не знайдено!", show_alert=True)
+        
+    poster_order_id, status, product_keys = order
+    
+    if status == 'cancelled':
+        return bot.answer_callback_query(call.id, "ℹ️ Це замовлення вже скасоване.", show_alert=True)
+        
+    # Скасування в Poster API
+    if poster_order_id:
+        payload = {
+            "incoming_order_id": poster_order_id,
+            "status": 5 # 5 зазвичай означає "Скасовано/Відхилено" у Poster
+        }
+        # Якщо у вашому Poster API інший метод зміни статусу, адаптуйте цей запит:
+        poster_request("incomingOrders.updateIncomingOrder", "POST", payload)
+        
+    # Оновлення БД та повернення товарів на склад
+    with sqlite3.connect("pinkcanna.db") as conn:
+        c = conn.cursor()
+        c.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
+        if product_keys:
+            for key in product_keys.split(","):
+                c.execute("UPDATE inventory SET total_qty = total_qty + 1 WHERE product_key = ?", (key,))
+        conn.commit()
+        
+    bot.answer_callback_query(call.id, "✅ Замовлення успішно скасовано!")
+    
+    # Оновлюємо текст повідомлення: замінюємо статус та прибираємо кнопку
+    new_text = call.message.text.replace("🟢 Статус: Активне (бронь)", "🔴 Статус: Скасоване").replace("🟢 Статус: Активне", "🔴 Статус: Скасоване")
+    try:
+        bot.edit_message_text(new_text, chat_id=user_id, message_id=call.message.message_id)
+    except:
+        pass
+
+    if ADMIN_ID:
+        try: bot.send_message(ADMIN_ID, f"⚠️ **СКАСУВАННЯ БРОНІ!**\nКлієнт скасував замовлення #{order_id} (Poster ID: {poster_order_id}). Товари повернуто на склад.")
+        except: pass
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_qr")
 def show_qr_callback(call):
@@ -699,11 +764,19 @@ def start_checkout(call):
     if res_order and "error" in res_order:
         bot.send_message(user_id, "⚠️ Помилка Poster API. Зв'яжіться з адміном.")
         return
+        
+    poster_order_id = None
+    if res_order and "response" in res_order:
+        resp = res_order["response"]
+        if isinstance(resp, dict):
+            poster_order_id = resp.get("incoming_order_id")
+        elif isinstance(resp, int):
+            poster_order_id = resp
     
     summary = ", ".join([f"{PRODUCTS[k]['name']} (x{purchased_items.count(k)})" for k in set(purchased_items)])
     
     # Підтверджуємо замовлення, записуємо в історію
-    db_confirm_purchase(user_id, summary, total_price)
+    db_confirm_purchase(user_id, summary, total_price, poster_order_id)
     
     # Винагороджуємо рефовода 20 грн за першу покупку друга
     reward_referrer_purchase(user_id)

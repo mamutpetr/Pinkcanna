@@ -96,7 +96,7 @@ def reward_referrer(referrer_id):
     if client_poster:
         add_poster_bonus(client_poster['client_id'], 50)
         try:
-            bot.send_message(referrer_id, "🎁 Ваш друг щойно завершив реєстрацію! Вам нараховано **50 бонусів** на рахунок у Poster!", parse_mode="Markdown")
+            bot.send_message(referrer_id, "🎁 Ваш друг успішно зареєструвався! На ваш рахунок зараховано **50 бонусів** у Poster.", parse_mode="Markdown")
         except: pass
 
 def reward_referrer_purchase(user_id):
@@ -106,7 +106,6 @@ def reward_referrer_purchase(user_id):
     referrer_id = user_data[2]
     has_purchased = user_data[3]
 
-    # Якщо юзер має рефовода і це його перша покупка
     if referrer_id and not has_purchased:
         referrer_data = db_manage_user(referrer_id)
         if referrer_data and referrer_data[0]:
@@ -115,9 +114,8 @@ def reward_referrer_purchase(user_id):
             if client_poster:
                 add_poster_bonus(client_poster['client_id'], 20)
                 try:
-                    bot.send_message(referrer_id, "🎁 Ваш друг зробив своє перше замовлення! Вам нараховано **20 бонусів** на рахунок у Poster!", parse_mode="Markdown")
+                    bot.send_message(referrer_id, "🎁 Ваш друг зробив своє перше замовлення! Вам нараховано **20 бонусів** у Poster.", parse_mode="Markdown")
                 except: pass
-        # Помічаємо, що юзер вже здійснив свою першу покупку
         db_manage_user(user_id, has_purchased=1)
 
 def create_poster_client_full(user_id):
@@ -150,7 +148,7 @@ def create_poster_client_full(user_id):
                 add_poster_bonus(new_client['client_id'], local_discount)
                 db_manage_user(user_id, discount=0)
                 try:
-                    bot.send_message(user_id, f"💸 Твої натапані **{local_discount:.16f} грн** успішно перенесені на бонусну карту Poster!", parse_mode="Markdown")
+                    bot.send_message(user_id, f"✅ Ваша знижка **{local_discount:.16f} грн** успішно перенесена на бонусну карту Poster!", parse_mode="Markdown")
                 except: pass
             
     return res
@@ -175,7 +173,6 @@ def init_db():
         try: c.execute("ALTER TABLE users ADD COLUMN has_purchased INTEGER DEFAULT 0")
         except: pass
         
-        # Міграція для таблиці orders (на випадок якщо вона вже існує без нових колонок)
         try: c.execute("ALTER TABLE orders ADD COLUMN poster_order_id INTEGER")
         except: pass
         try: c.execute("ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'active'")
@@ -338,6 +335,8 @@ init_db()
 def send_product_card(chat_id, key):
     item = PRODUCTS[key]
     stock = db_get_stock(key)
+    
+    # Використовуємо row_width=1, щоб кнопки ставали одна під одною і розтягувалися на всю ширину
     markup = types.InlineKeyboardMarkup(row_width=1)
     if stock > 0:
         stock_text = f"🟢 В наявності: {stock} шт"
@@ -369,13 +368,13 @@ def main_menu():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True)
     m.row("📂 Каталог", "🛒 Кошик")
     m.row("🧮 Підбір дози CBD", "👤 Профіль")
-    m.row(types.KeyboardButton("🍀 Натапати знижку", web_app=types.WebAppInfo(url=WEB_APP_URL)))
+    m.row(types.KeyboardButton("🎁 Отримати знижку (Гра)", web_app=types.WebAppInfo(url=WEB_APP_URL)))
     m.row("📞 Консультант")
     return m
 
 def contact_menu():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    m.add(types.KeyboardButton("📱 Надіслати свій номер телефону", request_contact=True))
+    m.add(types.KeyboardButton("📱 Надіслати номер телефону", request_contact=True))
     m.add("⬅️ Назад до меню")
     return m
 
@@ -393,13 +392,13 @@ def start(message):
                 c.execute("UPDATE users SET referred_by = ? WHERE user_id = ?", (referrer_id, user_id))
                 conn.commit()
 
-    bot.send_message(user_id, "🌿 Вітаємо у Pink Canna! Оберіть пункт меню:", reply_markup=main_menu())
+    bot.send_message(user_id, "Вітаємо у Pink Canna! 🌿\nБудь ласка, оберіть пункт меню нижче:", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "⬅️ Назад до меню")
 def back_to_menu(message):
     if message.chat.id in user_data_cache:
         del user_data_cache[message.chat.id]
-    bot.send_message(message.chat.id, "Ви в головному меню:", reply_markup=main_menu())
+    bot.send_message(message.chat.id, "Ви повернулися до головного меню:", reply_markup=main_menu())
 
 # --- ПРОФІЛЬ ---
 @bot.message_handler(commands=['me', 'profile'])
@@ -413,7 +412,7 @@ def profile_cmd(message):
         display_profile(message, phone, user_data[1]) 
     else:
         user_data_cache[user_id] = {'step': 'register_phone'}
-        bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nЩоб отримувати кешбек та знижки, поділіться своїм номером телефону.", reply_markup=contact_menu(), parse_mode="Markdown")
+        bot.send_message(user_id, "👤 **Оформлення карти клієнта**\n\nДля нарахування кешбеку та знижок, будь ласка, поділіться своїм номером телефону.", reply_markup=contact_menu(), parse_mode="Markdown")
 
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
@@ -428,21 +427,21 @@ def handle_contact(message):
         client_poster = get_poster_client(phone)
         if client_poster:
             db_manage_user(user_id, phone=phone)
-            bot.send_message(user_id, "✅ Ваш профіль знайдено в базі Poster!", reply_markup=main_menu())
+            bot.send_message(user_id, "✅ Ваш профіль успішно знайдено в базі!", reply_markup=main_menu())
             
             user_db = db_manage_user(user_id)
             if user_db[1] > 0:
                 add_poster_bonus(client_poster['client_id'], user_db[1])
                 db_manage_user(user_id, discount=0)
-                bot.send_message(user_id, f"💸 Твої натапані **{user_db[1]:.16f} грн** автоматично перенесені на бонусну карту Poster!", parse_mode="Markdown")
+                bot.send_message(user_id, f"💸 Ваша знижка **{user_db[1]:.16f} грн** автоматично перенесена на бонусну карту Poster!", parse_mode="Markdown")
             
             display_profile(message, phone, db_manage_user(user_id)[1])
             del user_data_cache[user_id]
         else:
-            bot.send_message(user_id, "Введіть ваше ПІБ (Прізвище та Ім'я):", reply_markup=types.ReplyKeyboardRemove())
+            bot.send_message(user_id, "Будь ласка, введіть Ваше ПІБ (Прізвище та Ім'я):", reply_markup=types.ReplyKeyboardRemove())
     else:
         db_manage_user(user_id, phone=phone)
-        bot.send_message(user_id, "Номер збережено.", reply_markup=main_menu())
+        bot.send_message(user_id, "Номер успішно збережено.", reply_markup=main_menu())
 
 def display_profile(message, phone, game_discount):
     user_id = message.chat.id
@@ -453,23 +452,26 @@ def display_profile(message, phone, game_discount):
     poster_bonus = float(client_poster.get('bonus', 0)) / 100 if client_poster else 0.0
     group_name = client_poster.get('group_name', 'Постійний клієнт') if client_poster else 'Новий клієнт'
     
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🪪 Моя карта (Штрих-код на касу)", callback_data="show_qr"))
-    markup.add(types.InlineKeyboardButton("📜 Історія замовлень", callback_data="order_history"))
+    # Використовуємо row_width=1 для ідеального вирівнювання кнопок
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("🪪 Моя карта (Штрих-код на касу)", callback_data="show_qr"),
+        types.InlineKeyboardButton("📜 Історія замовлень", callback_data="order_history")
+    )
 
-    text = (f"👤 **Твій кабінет Pink Canna**\n\n"
+    text = (f"👤 **Ваш кабінет Pink Canna**\n\n"
             f"🏷 Статус: *{group_name}*\n"
             f"📱 Телефон: `{phone}`\n\n"
-            f"💰 Баланс Poster: **{int(poster_bonus)} грн**\n"
-            f"*(всі бонуси за друзів та ігри накопичуються тут)*\n\n"
+            f"💰 Бонуси Poster: **{int(poster_bonus)} грн**\n"
+            f"*(Усі бонуси за запрошення друзів та ігри накопичуються тут)*\n\n"
             f"🔗 **Реферальна програма:**\n"
-            f"Запрошуй друзів та отримуй **50 грн** за їх реєстрацію та **20 грн** за їхню першу покупку!\n")
+            f"Запрошуйте друзів та отримуйте **50 грн** за їх реєстрацію та **20 грн** за їхнє перше замовлення!\n")
     
     if game_discount > 0:
         text += f"\n⚠️ У вас є **{game_discount:.16f} грн** знижки, яка чекає на перенесення в Poster."
     
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
-    bot.send_message(user_id, f"`{ref_link}`", parse_mode="Markdown")
+    bot.send_message(user_id, f"Ваше посилання для запрошення:\n`{ref_link}`", parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "order_history")
 def show_order_history(call):
@@ -489,9 +491,9 @@ def show_order_history(call):
         order_id, items, total, created_at, status = o
         text = f"📅 **{created_at}**\n📦 {items}\n💰 Сума: **{total} грн**\n"
         
-        m = types.InlineKeyboardMarkup()
+        m = types.InlineKeyboardMarkup(row_width=1)
         if status == 'active':
-            text += "🟢 Статус: **Активне** (бронь)"
+            text += "🟢 Статус: **Активне** (Бронь)"
             m.add(types.InlineKeyboardButton("❌ Скасувати замовлення", callback_data=f"cancel_order_{order_id}"))
         else:
             text += "🔴 Статус: **Скасоване**"
@@ -514,18 +516,9 @@ def cancel_order_handler(call):
     poster_order_id, status, product_keys = order
     
     if status == 'cancelled':
-        return bot.answer_callback_query(call.id, "ℹ️ Це замовлення вже скасоване.", show_alert=True)
+        return bot.answer_callback_query(call.id, "ℹ️ Це замовлення вже було скасовано.", show_alert=True)
         
-    # Скасування в Poster API
-    if poster_order_id:
-        payload = {
-            "incoming_order_id": poster_order_id,
-            "status": 5 # 5 зазвичай означає "Скасовано/Відхилено" у Poster
-        }
-        # Якщо у вашому Poster API інший метод зміни статусу, адаптуйте цей запит:
-        poster_request("incomingOrders.updateIncomingOrder", "POST", payload)
-        
-    # Оновлення БД та повернення товарів на склад
+    # Оновлення локальної БД та повернення товарів на віртуальний склад
     with sqlite3.connect("pinkcanna.db") as conn:
         c = conn.cursor()
         c.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
@@ -534,17 +527,28 @@ def cancel_order_handler(call):
                 c.execute("UPDATE inventory SET total_qty = total_qty + 1 WHERE product_key = ?", (key,))
         conn.commit()
         
-    bot.answer_callback_query(call.id, "✅ Замовлення успішно скасовано!")
+    bot.answer_callback_query(call.id, "✅ Запит на скасування успішно надіслано!")
     
-    # Оновлюємо текст повідомлення: замінюємо статус та прибираємо кнопку
-    new_text = call.message.text.replace("🟢 Статус: Активне (бронь)", "🔴 Статус: Скасоване").replace("🟢 Статус: Активне", "🔴 Статус: Скасоване")
+    # Оновлюємо текст повідомлення в боті для клієнта
+    new_text = call.message.text.replace("🟢 Статус: **Активне** (Бронь)", "🔴 Статус: **Скасоване**").replace("🟢 Статус: Активне", "🔴 Статус: Скасоване")
     try:
-        bot.edit_message_text(new_text, chat_id=user_id, message_id=call.message.message_id)
+        bot.edit_message_text(new_text, chat_id=user_id, message_id=call.message.message_id, parse_mode="Markdown")
     except:
         pass
 
+    # Сповіщаємо адміністратора для ручного скасування у Poster
     if ADMIN_ID:
-        try: bot.send_message(ADMIN_ID, f"⚠️ **СКАСУВАННЯ БРОНІ!**\nКлієнт скасував замовлення #{order_id} (Poster ID: {poster_order_id}). Товари повернуто на склад.")
+        user_data = db_manage_user(user_id)
+        phone = user_data[0] if user_data and user_data[0] else "Не вказано"
+        try: 
+            bot.send_message(
+                ADMIN_ID, 
+                f"⚠️ **ЗАПИТ НА СКАСУВАННЯ ЗАМОВЛЕННЯ!**\n\n"
+                f"Клієнт ({phone}) самостійно скасував замовлення #{order_id} у боті.\n"
+                f"❗️ **Poster ID:** `{poster_order_id}`\n\n"
+                f"Будь ласка, знайдіть це замовлення в системі Poster та скасуйте його вручну.", 
+                parse_mode="Markdown"
+            )
         except: pass
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_qr")
@@ -553,7 +557,7 @@ def show_qr_callback(call):
     user_data = db_manage_user(user_id)
     phone = user_data[0]
     
-    if not phone: return bot.answer_callback_query(call.id, "Спочатку надайте номер телефону!", show_alert=True)
+    if not phone: return bot.answer_callback_query(call.id, "Будь ласка, спочатку надайте номер телефону!", show_alert=True)
     
     client_poster = get_poster_client(phone)
     poster_bonus = float(client_poster.get('bonus', 0)) / 100 if client_poster else 0.0
@@ -599,10 +603,12 @@ def calc_result(call):
     text = (f"📊 **Ваш розрахунок:**\n🩺 Симптом: **{DOSAGE_DATA[diag_key]['name']}**\n⚖️ Вага: **{weight} кг**\n🎯 Добова норма: **{dose} мг** CBD\n\n"
             f"💧 **Як приймати ({conc}%):**\n• Флакон 10 мл: `~ {round(dose / CONC_DATA[conc]['10ml'], 1)} піпетки`\n"
             f"• Флакон 30 мл: `~ {round(dose / CONC_DATA[conc]['30ml'], 1)} піпетки`\n\n💡 *Порада: розділіть дозу на ранок та вечір.*")
+    
     markup = types.InlineKeyboardMarkup(row_width=1)
     if db_get_stock(f"cbd_{conc}_10") > 0: markup.add(types.InlineKeyboardButton(f"🛒 Додати {conc}% (10мл)", callback_data=f"buy_cbd_{conc}_10"))
     if db_get_stock(f"cbd_{conc}_30") > 0: markup.add(types.InlineKeyboardButton(f"🛒 Додати {conc}% (30мл)", callback_data=f"buy_cbd_{conc}_30"))
     markup.add(types.InlineKeyboardButton("🔄 Розрахувати заново", callback_data="calc_back"))
+    
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "calc_back")
@@ -614,7 +620,7 @@ def calc_back(call):
 def show_cats(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for cat_id, cat_name in CATEGORIES.items(): markup.add(types.InlineKeyboardButton(cat_name, callback_data=f"cat_{cat_id}"))
-    bot.send_message(message.chat.id, "Оберіть категорію:", reply_markup=markup)
+    bot.send_message(message.chat.id, "Будь ласка, оберіть категорію:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def show_items(call):
@@ -628,15 +634,15 @@ def item_actions(call):
     action, key = call.data.split("_", 1)
     if action == "buy":
         if db_add_to_cart_with_reserve(call.message.chat.id, key):
-            bot.answer_callback_query(call.id, f"✅ {PRODUCTS[key]['name']} заброньовано на 15 хв!")
+            bot.answer_callback_query(call.id, f"✅ {PRODUCTS[key]['name']} успішно заброньовано на 15 хв!")
         else:
-            bot.answer_callback_query(call.id, "❌ Недостатньо товару!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ На жаль, товару немає в наявності!", show_alert=True)
     elif action == "info":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, PRODUCTS[key]['info'], parse_mode="Markdown")
         send_product_card(call.message.chat.id, key)
 
-# --- ТАПАЛКА ---
+# --- ТАПАЛКА (ГРА) ---
 @bot.message_handler(content_types=['web_app_data'])
 def get_discount(message):
     try:
@@ -655,13 +661,13 @@ def get_discount(message):
                 if client_poster:
                     add_poster_bonus(client_poster['client_id'], disc)
                     db_manage_user(user_id, discount=0)
-                    bot.send_message(user_id, f"🍀 Супер! **{formatted_disc} грн** успішно зараховано на твій бонусний рахунок у Poster!", parse_mode="Markdown")
+                    bot.send_message(user_id, f"✅ Відмінно! Ваша знижка у розмірі **{formatted_disc} грн** успішно зарахована на ваш бонусний рахунок у Poster.", parse_mode="Markdown")
                     return
             
             db_manage_user(user_id, discount=disc)
-            bot.send_message(user_id, f"🍀 Супер! Знижка **{formatted_disc} грн** збережена.\n\n⚠️ Обов'язково зареєструй **👤 Профіль**, щоб ці гроші перейшли в Poster!", parse_mode="Markdown")
+            bot.send_message(user_id, f"✅ Знижка **{formatted_disc} грн** успішно збережена.\n\n⚠️ Щоб використати цю знижку, будь ласка, заповніть **👤 Профіль**.", parse_mode="Markdown")
     except Exception as e:
-        print("Помилка тапалки:", e)
+        print("Помилка обробки результатів гри:", e)
 
 # --- КОШИК ТА ОФОРМЛЕННЯ (САМОВИВІЗ 3 ГОДИНИ) ---
 @bot.message_handler(func=lambda m: m.text == "🛒 Кошик")
@@ -691,6 +697,7 @@ def render_cart(chat_id, message_id=None):
     min_expiry_str = min([row[1] for row in raw_items])
     mins_left = max(1, int((datetime.strptime(min_expiry_str, "%Y-%m-%d %H:%M:%S") - datetime.now()).total_seconds() / 60))
 
+    # Використовуємо row_width=3 для кнопок +, -, кількість
     markup = types.InlineKeyboardMarkup(row_width=3)
     item_counts = {k: items.count(k) for k in set(items)}
     summary = ""
@@ -698,8 +705,9 @@ def render_cart(chat_id, message_id=None):
         summary += f"• {PRODUCTS[k]['name']} x{count} = {PRODUCTS[k]['price'] * count} грн\n"
         markup.row(types.InlineKeyboardButton("➖", callback_data=f"crem_{k}"), types.InlineKeyboardButton(f"{count} шт", callback_data="ignore"), types.InlineKeyboardButton("➕", callback_data=f"cadd_{k}"))
         
-    markup.row(types.InlineKeyboardButton("✅ Забронювати (Самовивіз)", callback_data="start_checkout"))
-    markup.row(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))
+    # Додаємо фінальні кнопки по одній в рядок для ідеального вирівнювання
+    markup.add(types.InlineKeyboardButton("✅ Забронювати (Самовивіз)", callback_data="start_checkout"))
+    markup.add(types.InlineKeyboardButton("🗑 Очистити кошик", callback_data="clear_cart"))
     
     final_total = total - total_benefit if total_benefit < total else 1
     text = f"**Ваш кошик:**\n\n{summary}\n"
@@ -713,14 +721,14 @@ def mod_cart(call):
     key = call.data.split("_", 1)[1]
     if call.data.startswith("cadd_"):
         if not db_add_to_cart_with_reserve(call.message.chat.id, key):
-            bot.answer_callback_query(call.id, "❌ Немає в наявності!", show_alert=True); return
+            bot.answer_callback_query(call.id, "❌ На жаль, товару немає в наявності!", show_alert=True); return
     elif call.data.startswith("crem_"): db_remove_one_from_cart(call.message.chat.id, key)
     bot.answer_callback_query(call.id); render_cart(call.message.chat.id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clr_cart(call):
     bot.answer_callback_query(call.id); db_clear_cart(call.message.chat.id)
-    bot.edit_message_text("🗑 Кошик очищено.", call.message.chat.id, call.message.message_id)
+    bot.edit_message_text("🗑 Кошик успішно очищено.", call.message.chat.id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "start_checkout")
 def start_checkout(call):
@@ -739,7 +747,7 @@ def start_checkout(call):
     phone = user_data[0] if user_data else None
     
     if not phone:
-        bot.send_message(user_id, "⚠️ Для бронювання необхідно надати номер телефону в розділі **👤 Профіль**.")
+        bot.send_message(user_id, "⚠️ Для бронювання необхідно надати номер телефону. Будь ласка, перейдіть до розділу **👤 Профіль**.", parse_mode="Markdown")
         return
 
     # Логіка Poster
@@ -762,7 +770,7 @@ def start_checkout(call):
     res_order = poster_request("incomingOrders.createIncomingOrder", "POST", order_data_poster)
 
     if res_order and "error" in res_order:
-        bot.send_message(user_id, "⚠️ Помилка Poster API. Зв'яжіться з адміном.")
+        bot.send_message(user_id, "⚠️ Виникла помилка під час обробки замовлення. Будь ласка, зверніться до підтримки.")
         return
         
     poster_order_id = None
@@ -775,26 +783,23 @@ def start_checkout(call):
     
     summary = ", ".join([f"{PRODUCTS[k]['name']} (x{purchased_items.count(k)})" for k in set(purchased_items)])
     
-    # Підтверджуємо замовлення, записуємо в історію
     db_confirm_purchase(user_id, summary, total_price, poster_order_id)
-    
-    # Винагороджуємо рефовода 20 грн за першу покупку друга
     reward_referrer_purchase(user_id)
     
-    bot.send_message(user_id, "✅ **Успішно заброньовано на 3 години!**\n\nМи чекаємо на вас. Оплата та списання бонусів — на касі. Просто покажіть касиру ваш штрих-код у профілі.", parse_mode="Markdown")
+    bot.send_message(user_id, "✅ **Замовлення успішно заброньовано на 3 години!**\n\nМи з нетерпінням чекаємо на Вас у закладі. Оплата та використання бонусів відбудуться на касі. Для цього просто покажіть касиру Ваш штрих-код у профілі.\n\nДякуємо, що обрали Pink Canna!", parse_mode="Markdown")
 
     if ADMIN_ID:
         try:
-            bot.send_message(ADMIN_ID, f"🔔 **НОВА БРОНЬ (3 год)!**\n👤 Телефон: {phone}\n📦 Товари: {summary}\n💰 Сума: {total_price} грн")
+            bot.send_message(ADMIN_ID, f"🔔 **НОВЕ ЗАМОВЛЕННЯ (Самовивіз)!**\n👤 Телефон: `{phone}`\n📦 Товари: {summary}\n💰 Сума: {total_price} грн", parse_mode="Markdown")
         except: pass
 
 # --- АДМІНКА ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if str(message.chat.id) != str(ADMIN_ID): return
-    m = types.InlineKeyboardMarkup()
+    m = types.InlineKeyboardMarkup(row_width=1)
     m.add(types.InlineKeyboardButton("📦 Склад", callback_data="admin_stock"), types.InlineKeyboardButton("📢 Розсилка", callback_data="admin_broadcast"))
-    bot.send_message(message.chat.id, "👨‍💻 **Адмін-панель**", reply_markup=m, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "👨‍💻 **Адміністративна панель**", reply_markup=m, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "admin_stock")
 def admin_stock_cats(call):
@@ -820,8 +825,8 @@ def admin_stock_edit(call):
 def process_stock_update(message, key):
     try:
         qty = int(message.text); db_set_stock(key, qty)
-        bot.send_message(message.chat.id, f"✅ Оновлено: {qty} шт.")
-    except: bot.send_message(message.chat.id, "⚠️ Тільки цифри!")
+        bot.send_message(message.chat.id, f"✅ Успішно оновлено: {qty} шт.")
+    except: bot.send_message(message.chat.id, "⚠️ Помилка: використовуйте лише цифри.")
 
 # --- ОБРОБНИК ТЕКСТУ ТА РЕЄСТРАЦІЯ ---
 @bot.message_handler(func=lambda m: True)
@@ -835,30 +840,30 @@ def handle_all_text(message):
             state['name'] = text
             state['step'] = 'register_sex'
             m = types.ReplyKeyboardMarkup(resize_keyboard=True).add("👨 Чоловіча", "👩 Жіноча")
-            bot.send_message(user_id, "Оберіть стать:", reply_markup=m)
+            bot.send_message(user_id, "Оберіть Вашу стать:", reply_markup=m)
             return
         elif state['step'] == 'register_sex':
             state['sex'] = 1 if text == "👨 Чоловіча" else 2 if text == "👩 Жіноча" else 0
             state['step'] = 'register_birthday'
-            bot.send_message(user_id, "Дата народження (ДД.ММ.РРРР):", reply_markup=types.ReplyKeyboardRemove())
+            bot.send_message(user_id, "Введіть дату народження (формат ДД.ММ.РРРР):", reply_markup=types.ReplyKeyboardRemove())
             return
         elif state['step'] == 'register_birthday':
             if re.match(r'^\d{2}\.\d{2}\.\d{4}$', text):
                 state['birthday'] = text
                 state['step'] = 'register_email'
-                bot.send_message(user_id, "E-mail (або 'Пропустити'):", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("Пропустити ➡️"))
+                bot.send_message(user_id, "Введіть Ваш E-mail (або натисніть 'Пропустити'):", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("Пропустити ➡️"))
             return
         elif state['step'] == 'register_email':
             state['email'] = text if text != "Пропустити ➡️" else ""
             db_manage_user(user_id, phone=state['phone'])
             create_poster_client_full(user_id)
-            bot.send_message(user_id, "🎉 Карта клієнта створена!", reply_markup=main_menu())
+            bot.send_message(user_id, "🎉 Ваша карта клієнта успішно створена!", reply_markup=main_menu())
             del user_data_cache[user_id]
             return
 
-    if text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🍀 Натапати знижку", "🧮 Підбір дози CBD", "👤 Профіль"]: 
+    if text in ["📂 Каталог", "🛒 Кошик", "📞 Консультант", "🎁 Отримати знижку (Гра)", "🧮 Підбір дози CBD", "👤 Профіль"]: 
         if text == "📞 Консультант":
-            bot.send_message(user_id, "👨‍💻 Ваш запит передано! Живий менеджер зв'яжеться з вами найближчим часом.")
+            bot.send_message(user_id, "👨‍💻 Ваш запит передано! Наш менеджер зв'яжеться з Вами найближчим часом.")
             if ADMIN_ID:
                 username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {user_id}"
                 user_db = db_manage_user(user_id)
@@ -866,7 +871,7 @@ def handle_all_text(message):
                 try:
                     bot.send_message(ADMIN_ID, f"🙋‍♂️ **Запит на живу консультацію!**\n\nКлієнт: {username}{phone_info}\nНапишіть йому в особисті повідомлення.", parse_mode="Markdown")
                 except Exception as e:
-                    print(f"Не вдалося відправити повідомлення адміну: {e}")
+                    pass
             return
         return
     
@@ -879,7 +884,7 @@ def handle_all_text(message):
     system_prompt = f"""Ти — привітний, емпатичний та експертний AI-консультант магазину та закладу "Pink Canna".
 Твоя мета: допомагати клієнтам підбирати продукцію (CBD олії, екстракти Канни, добавки для сну/енергії, а також каву, десерти та коктейлі), відповідати на їхні питання та створювати атмосферу спокою та релаксу.
 
-Тон спілкування: дружній, турботливий, сучасний. Звертайся до клієнта на "ви", але без зайвого офіціозу. Використовуй доречні емодзі (🌿, 💧, ☕️, 🧠, 🍰).
+Тон спілкування: дружній, турботливий, сучасний. Звертайся до клієнта на "Ви", але без зайвого офіціозу. Використовуй доречні емодзі (🌿, 💧, ☕️, 🧠, 🍰).
 
 📦 ПРАВИЛА РОБОТИ З ТОВАРАМИ (КРИТИЧНО ВАЖЛИВО):
 Наразі в наявності є такі товари: {', '.join(avail)}.
@@ -906,7 +911,7 @@ def handle_all_text(message):
         bot.send_message(user_id, re.sub(r'\[[a-zA-Z0-9_]+\]', '', ai_text).strip())
         for k in keys:
             if k in PRODUCTS and db_get_stock(k) > 0: send_product_card(user_id, k)
-    except: bot.send_message(user_id, "⚠️ AI тимчасово недоступний.")
+    except: bot.send_message(user_id, "⚠️ На жаль, AI тимчасово недоступний. Спробуйте пізніше.")
 
 if __name__ == "__main__":
     bot.infinity_polling()
